@@ -106,11 +106,133 @@ float g_AngleX = 0.0f;
 float g_AngleY = 0.0f;
 float g_AngleZ = 0.0f;
 
+GLint g_model_uniform;
+GLint g_view_uniform;
+GLint g_projection_uniform;
+GLint g_object_id_uniform;
+
 // "g_LeftMouseButtonPressed = true" se o usuário está com o botão esquerdo do mouse
 // pressionado no momento atual. Veja função MouseButtonCallback().
 bool g_LeftMouseButtonPressed = false;
 bool g_RightMouseButtonPressed = false; // Análogo para botão direito do mouse
 bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mouse
+
+class ShaderManager {
+public:
+    std::map<std::string, GLuint> vertex_shader_ids;
+    std::map<std::string, GLuint> fragment_shader_ids;
+    std::map<std::string, GLuint> gpu_program_ids;
+    
+    /** Register a program under a name of your choosing. */
+    GLuint registerProgram(std::string program_name, std::string vertex_shader_filename, std::string fragment_shader_filename);
+    
+    GLuint getOrLoadVertexShader(std::string filename);
+    GLuint getOrLoadFragmentShader(std::string filename);
+    bool   loadShader(std::string filename, GLuint shader_id);
+    GLuint getProgramId(std::string program_name);
+    
+    void   reloadAll();
+};
+
+
+void   ShaderManager::reloadAll(){
+    for(auto& [filename, shader_id] : vertex_shader_ids){
+        std::string filename_copy = filename;
+        vertex_shader_ids.erase(filename);
+        getOrLoadVertexShader(filename_copy);
+    }
+    for(auto& [filename, shader_id] : fragment_shader_ids){
+        std::string filename_copy = filename;
+        fragment_shader_ids.erase(filename);
+        getOrLoadFragmentShader(filename_copy);
+    }
+}
+
+GLuint ShaderManager::getProgramId(std::string program_name){
+    log_assert(gpu_program_ids.find(program_name) != gpu_program_ids.end(), "Calling an unregistered program? [%s]", program_name.c_str());
+    GLuint program_id = gpu_program_ids[program_name];
+
+    g_model_uniform      = glGetUniformLocation(program_id, "model"); // Variável da matriz "model"
+    g_view_uniform       = glGetUniformLocation(program_id, "view"); // Variável da matriz "view" em shader_vertex.glsl
+    g_projection_uniform = glGetUniformLocation(program_id, "projection"); // Variável da matriz "projection" em shader_vertex.glsl
+    g_object_id_uniform  = glGetUniformLocation(program_id, "object_id"); // Variável "object_id" em shader_fragment.glsl
+
+    return program_id;
+}
+
+bool   ShaderManager::loadShader(std::string filename, GLuint shader_id){
+    std::ifstream file;
+    try {
+        file.exceptions(std::ifstream::failbit);
+        file.open(filename);
+    } catch ( std::exception& e ) {
+        log_severe("Cannot load Fragment shader on [%s]. Reason: %s\n", filename.c_str(), e.what());
+        std::exit(EXIT_FAILURE);
+    }
+    std::stringstream shader;
+    shader << file.rdbuf();
+    std::string str = shader.str();
+    const GLchar* shader_string = str.c_str();
+    const GLint   shader_string_length = static_cast<GLint>( str.length() );
+
+    // Define o código do shader GLSL, contido na string "shader_string"
+    glShaderSource(shader_id, 1, &shader_string, &shader_string_length);
+
+    // Compila o código do shader GLSL (em tempo de execução)
+    glCompileShader(shader_id);
+
+    // Verificamos se ocorreu algum erro ou "warning" durante a compilação
+    GLint compilation_succeeded;
+    glGetShaderiv(shader_id, GL_COMPILE_STATUS, &compilation_succeeded);
+
+    GLint log_length = 0;
+    glGetShaderiv(shader_id, GL_INFO_LOG_LENGTH, &log_length);
+
+    std::vector<char> log_buffer(log_length + 1 );
+    glGetShaderInfoLog(shader_id, log_length, &log_length, &log_buffer[0]);
+
+    std::string log( &log_buffer[0] );
+    if(!compilation_succeeded){
+        log_severe("OpenGL compilation of shader [%s] FAILED. See log below: \n%s", filename.c_str(), log.c_str());
+    } else {
+        log_info("OpenGL compilation of shader [%s] successful! See logs: %s\n", filename.c_str(), log.c_str());
+    }
+    return compilation_succeeded;
+}
+
+GLuint  ShaderManager::getOrLoadFragmentShader(std::string filename){
+    if( fragment_shader_ids.find(filename) == fragment_shader_ids.end() ){
+        GLuint shader_id = glCreateShader(GL_FRAGMENT_SHADER);
+        bool success = loadShader(filename, shader_id);
+        log_assert(success, "Could not load shader from file! [%s].", filename);
+        log_info("Registered fragment shader as %d", shader_id);
+        fragment_shader_ids[ filename ] = shader_id;
+    }
+    return fragment_shader_ids[ filename ];
+}
+
+GLuint  ShaderManager::getOrLoadVertexShader(std::string filename){
+    if( vertex_shader_ids.find(filename) == vertex_shader_ids.end() ){
+        GLuint shader_id = glCreateShader(GL_VERTEX_SHADER);
+        bool success = loadShader(filename, shader_id);
+        log_assert(success, "Could not load shader from file! [%s].", filename);
+        log_info("Registered vertex shader as %d", shader_id);
+        vertex_shader_ids[ filename ] = shader_id;
+    }
+    return vertex_shader_ids[ filename ];
+}
+
+GLuint ShaderManager::registerProgram(std::string program_name, std::string vertex_shader_filename, std::string fragment_shader_filename){
+    GLuint vertex_shader_id = getOrLoadVertexShader(vertex_shader_filename);
+    GLuint fragment_shader_id = getOrLoadFragmentShader(fragment_shader_filename);
+    
+    GLuint program_id = CreateGpuProgram(vertex_shader_id, fragment_shader_id);
+    log_info("Registered GPU program '%s' (%d, %d) with id %d. ", program_name.c_str(), vertex_shader_id, fragment_shader_id, program_id );
+    
+    gpu_program_ids[program_name] = program_id;
+    return program_id;
+}
+
 
 // Variáveis que definem a câmera em coordenadas esféricas, controladas pelo
 // usuário através do mouse (veja função CursorPosCallback()). A posição
@@ -125,6 +247,7 @@ bool g_setFixedFPS = true;
 int  g_targetFPS = 30.0;
 long long g_experimentalState = 0;
 
+ShaderManager g_shaderManager;
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -142,10 +265,6 @@ bool g_ShowInfoText = true;
 
 // Variáveis que definem um programa de GPU (shaders). Veja função LoadShadersFromFiles().
 GLuint g_GpuProgramID = 0;
-GLint g_model_uniform;
-GLint g_view_uniform;
-GLint g_projection_uniform;
-GLint g_object_id_uniform;
 
 void ge_gl_log_vendor_info(){
     const GLubyte *vendor      = glGetString(GL_VENDOR);
@@ -239,20 +358,12 @@ int main(int argc, char* argv[]) {
     // redimensionada, por consequência alterando o tamanho do "framebuffer"
     // (região de memória onde são armazenados os pixels da imagem).
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
-    FramebufferSizeCallback(window, 800, 600); // Forçamos a chamada do callback acima, para definir g_ScreenRatio.
+    FramebufferSizeCallback(window, 800, 800); // Forçamos a chamada do callback acima, para definir g_ScreenRatio.
 
-    // Imprimimos no terminal informações sobre a GPU do sistema
-    const GLubyte *vendor      = glGetString(GL_VENDOR);
-    const GLubyte *renderer    = glGetString(GL_RENDERER);
-    const GLubyte *glversion   = glGetString(GL_VERSION);
-    const GLubyte *glslversion = glGetString(GL_SHADING_LANGUAGE_VERSION);
+    ShaderManager g_shaderManager;
+    g_shaderManager.registerProgram("main", "../src/shader_vertex.glsl","../src/shader_fragment.glsl");
 
-    printf("GPU: %s, %s, OpenGL %s, GLSL %s\n", vendor, renderer, glversion, glslversion);
-
-    // Carregamos os shaders de vértices e de fragmentos que serão utilizados
-    // para renderização. Veja slides 180-200 do documento Aula_03_Rendering_Pipeline_Grafico.pdf.
-    //
-    LoadShadersFromFiles();
+    // LoadShadersFromFiles();
 
     // Construímos a representação de objetos geométricos através de malhas de triângulos
     ObjModel spheremodel("../data/sphere.obj");
@@ -301,9 +412,8 @@ int main(int argc, char* argv[]) {
 
         // Pedimos para a GPU utilizar o programa de GPU criado acima (contendo
         // os shaders de vértice e fragmentos).
-        glUseProgram(g_GpuProgramID);
-
-
+        glUseProgram( g_shaderManager.getProgramId("main") );
+        log_info("Using program %d ", g_shaderManager.getProgramId("main"));
         // Computamos a posição da câmera utilizando coordenadas esféricas.  As
         // variáveis g_CameraDistance, g_CameraPhi, e g_CameraTheta são
         // controladas pelo mouse do usuário. Veja as funções CursorPosCallback()
@@ -449,28 +559,6 @@ void DrawVirtualObject(const char* object_name) {
     glBindVertexArray(0);
 }
 
-// Função que carrega os shaders de vértices e de fragmentos que serão
-// utilizados para renderização. Veja slides 180-200 do documento Aula_03_Rendering_Pipeline_Grafico.pdf.
-void LoadShadersFromFiles() {
-    GLuint vertex_shader_id = LoadShader_Vertex("../src/shader_vertex.glsl");
-    GLuint fragment_shader_id = LoadShader_Fragment("../src/shader_fragment.glsl");
-
-    // Deletamos o programa de GPU anterior, caso ele exista.
-    if ( g_GpuProgramID != 0 )
-        glDeleteProgram(g_GpuProgramID);
-
-    // Criamos um programa de GPU utilizando os shaders carregados acima.
-    g_GpuProgramID = CreateGpuProgram(vertex_shader_id, fragment_shader_id);
-
-    // Buscamos o endereço das variáveis definidas dentro do Vertex Shader.
-    // Utilizaremos estas variáveis para enviar dados para a placa de vídeo
-    // (GPU)! Veja arquivo "shader_vertex.glsl" e "shader_fragment.glsl".
-    g_model_uniform      = glGetUniformLocation(g_GpuProgramID, "model"); // Variável da matriz "model"
-    g_view_uniform       = glGetUniformLocation(g_GpuProgramID, "view"); // Variável da matriz "view" em shader_vertex.glsl
-    g_projection_uniform = glGetUniformLocation(g_GpuProgramID, "projection"); // Variável da matriz "projection" em shader_vertex.glsl
-    g_object_id_uniform  = glGetUniformLocation(g_GpuProgramID, "object_id"); // Variável "object_id" em shader_fragment.glsl
-}
-
 // Função que pega a matriz M e guarda a mesma no topo da pilha
 void PushMatrix(glm::mat4 M)
 {
@@ -478,8 +566,7 @@ void PushMatrix(glm::mat4 M)
 }
 
 // Função que remove a matriz atualmente no topo da pilha e armazena a mesma na variável M
-void PopMatrix(glm::mat4& M)
-{
+void PopMatrix(glm::mat4& M) {
     if ( g_MatrixStack.empty() ) {
         M = Matrix_Identity();
     } else {
@@ -553,8 +640,7 @@ void ComputeNormals(ObjModel* model) {
 }
 
 // Constrói triângulos para futura renderização a partir de um ObjModel.
-void BuildTrianglesAndAddToVirtualScene(ObjModel* model)
-{
+void BuildTrianglesAndAddToVirtualScene(ObjModel* model) {
     GLuint vertex_array_object_id;
     glGenVertexArrays(1, &vertex_array_object_id);
     glBindVertexArray(vertex_array_object_id);
@@ -680,101 +766,6 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel* model)
     glBindVertexArray(0);
 }
 
-// Carrega um Vertex Shader de um arquivo GLSL. Veja definição de LoadShader() abaixo.
-GLuint LoadShader_Vertex(const char* filename) {
-    // Criamos um identificador (ID) para este shader, informando que o mesmo
-    // será aplicado nos vértices.
-    GLuint vertex_shader_id = glCreateShader(GL_VERTEX_SHADER);
-
-    // Carregamos e compilamos o shader
-    LoadShader(filename, vertex_shader_id);
-
-    // Retorna o ID gerado acima
-    return vertex_shader_id;
-}
-
-// Carrega um Fragment Shader de um arquivo GLSL . Veja definição de LoadShader() abaixo.
-GLuint LoadShader_Fragment(const char* filename) {
-    // Criamos um identificador (ID) para este shader, informando que o mesmo
-    // será aplicado nos fragmentos.
-    GLuint fragment_shader_id = glCreateShader(GL_FRAGMENT_SHADER);
-
-    // Carregamos e compilamos o shader
-    LoadShader(filename, fragment_shader_id);
-
-    // Retorna o ID gerado acima
-    return fragment_shader_id;
-}
-
-// Função auxilar, utilizada pelas duas funções acima. Carrega código de GPU de
-// um arquivo GLSL e faz sua compilação.
-void LoadShader(const char* filename, GLuint shader_id) {
-    // Lemos o arquivo de texto indicado pela variável "filename"
-    // e colocamos seu conteúdo em memória, apontado pela variável
-    // "shader_string".
-    std::ifstream file;
-    try {
-        file.exceptions(std::ifstream::failbit);
-        file.open(filename);
-    } catch ( std::exception& e ) {
-        fprintf(stderr, "ERROR: Cannot open file \"%s\".\n", filename);
-        std::exit(EXIT_FAILURE);
-    }
-    std::stringstream shader;
-    shader << file.rdbuf();
-    std::string str = shader.str();
-    const GLchar* shader_string = str.c_str();
-    const GLint   shader_string_length = static_cast<GLint>( str.length() );
-
-    // Define o código do shader GLSL, contido na string "shader_string"
-    glShaderSource(shader_id, 1, &shader_string, &shader_string_length);
-
-    // Compila o código do shader GLSL (em tempo de execução)
-    glCompileShader(shader_id);
-
-    // Verificamos se ocorreu algum erro ou "warning" durante a compilação
-    GLint compiled_ok;
-    glGetShaderiv(shader_id, GL_COMPILE_STATUS, &compiled_ok);
-
-    GLint log_length = 0;
-    glGetShaderiv(shader_id, GL_INFO_LOG_LENGTH, &log_length);
-
-    // Alocamos memória para guardar o log de compilação.
-    // A chamada "new" em C++ é equivalente ao "malloc()" do C.
-    GLchar* log = new GLchar[log_length];
-    glGetShaderInfoLog(shader_id, log_length, &log_length, log);
-
-    // Imprime no terminal qualquer erro ou "warning" de compilação
-    if ( log_length != 0 )
-    {
-        std::string  output;
-
-        if ( !compiled_ok )
-        {
-            output += "ERROR: OpenGL compilation of \"";
-            output += filename;
-            output += "\" failed.\n";
-            output += "== Start of compilation log\n";
-            output += log;
-            output += "== End of compilation log\n";
-        }
-        else
-        {
-            output += "WARNING: OpenGL compilation of \"";
-            output += filename;
-            output += "\".\n";
-            output += "== Start of compilation log\n";
-            output += log;
-            output += "== End of compilation log\n";
-        }
-
-        fprintf(stderr, "%s", output.c_str());
-    }
-
-    // A chamada "delete" em C++ é equivalente ao "free()" do C
-    delete [] log;
-}
-
 // Esta função cria um programa de GPU, o qual contém obrigatoriamente um
 // Vertex Shader e um Fragment Shader.
 GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id) {
@@ -793,35 +784,23 @@ GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id) {
     glGetProgramiv(program_id, GL_LINK_STATUS, &linked_ok);
 
     // Imprime no terminal qualquer erro de linkagem
-    if ( linked_ok == GL_FALSE )
-    {
+    if ( linked_ok == GL_FALSE ) {
         GLint log_length = 0;
         glGetProgramiv(program_id, GL_INFO_LOG_LENGTH, &log_length);
 
         // Alocamos memória para guardar o log de compilação.
         // A chamada "new" em C++ é equivalente ao "malloc()" do C.
-        GLchar* log = new GLchar[log_length];
+        std::vector<char> log_buffer(log_length + 1 );
 
-        glGetProgramInfoLog(program_id, log_length, &log_length, log);
+        glGetProgramInfoLog(program_id, log_length, &log_length, &log_buffer[0]);
 
-        std::string output;
+        std::string log( &log_buffer[0] );
 
-        output += "ERROR: OpenGL linking of program failed.\n";
-        output += "== Start of link log\n";
-        output += log;
-        output += "\n== End of link log\n";
-
-        // A chamada "delete" em C++ é equivalente ao "free()" do C
-        delete [] log;
-
-        fprintf(stderr, "%s", output.c_str());
+        log_severe("OpenGL linkage of program [%d] FAILED. See log below: \n%s", program_id, log.c_str());
     }
-
     // Os "Shader Objects" podem ser marcados para deleção após serem linkados 
-    glDeleteShader(vertex_shader_id);
-    glDeleteShader(fragment_shader_id);
-
-    // Retornamos o ID gerado acima
+    // glDeleteShader(vertex_shader_id);
+    // glDeleteShader(fragment_shader_id);
     return program_id;
 }
 
@@ -1003,23 +982,19 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
 
     float delta = 3.141592 / 16; // 22.5 graus, em radianos.
 
-    if (key == GLFW_KEY_X && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_X && action == GLFW_PRESS) {
         g_AngleX += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
     }
 
-    if (key == GLFW_KEY_Y && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
         g_AngleY += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
     }
-    if (key == GLFW_KEY_Z && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
         g_AngleZ += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
     }
 
     // Se o usuário apertar a tecla espaço, resetamos os ângulos de Euler para zero.
-    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
         g_AngleX = 0.0f;
         g_AngleY = 0.0f;
         g_AngleZ = 0.0f;
@@ -1030,29 +1005,24 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     }
 
     // Se o usuário apertar a tecla P, utilizamos projeção perspectiva.
-    if (key == GLFW_KEY_P && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_P && action == GLFW_PRESS) {
         g_UsePerspectiveProjection = true;
     }
 
     // Se o usuário apertar a tecla O, utilizamos projeção ortográfica.
-    if (key == GLFW_KEY_O && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_O && action == GLFW_PRESS) {
         g_UsePerspectiveProjection = false;
     }
 
     // Se o usuário apertar a tecla H, fazemos um "toggle" do texto informativo mostrado na tela.
-    if (key == GLFW_KEY_H && action == GLFW_PRESS)
-    {
+    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
         g_ShowInfoText = !g_ShowInfoText;
     }
 
     // Se o usuário apertar a tecla R, recarregamos os shaders dos arquivos "shader_fragment.glsl" e "shader_vertex.glsl".
-    if (key == GLFW_KEY_R && action == GLFW_PRESS)
-    {
-        LoadShadersFromFiles();
-        fprintf(stdout,"Shaders recarregados!\n");
-        fflush(stdout);
+    if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+        g_shaderManager.reloadAll();
+        log_info("Reloaded all shaders.");
     }
     
     if (key == GLFW_KEY_P && action == GLFW_PRESS){
