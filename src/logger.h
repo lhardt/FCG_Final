@@ -28,6 +28,7 @@ std::string direct_sprintf(const char * format, ...);
 #define log_warn(...) do{app_logger.warn(direct_sprintf(__VA_ARGS__) , (LOGMETA));}while(0)
 #define log_error(...) do{app_logger.error(direct_sprintf(__VA_ARGS__) , (LOGMETA));}while(0)
 #define log_severe(...) do{app_logger.severe(direct_sprintf(__VA_ARGS__) , (LOGMETA));}while(0)
+#define log_assert(cond, ...) do{ if(!(cond)) app_logger.severe(direct_sprintf(__VA_ARGS__) , (LOGMETA));}while(0)
 
 class Logger {
   public:
