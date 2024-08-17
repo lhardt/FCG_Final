@@ -76,10 +76,7 @@ void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
-// Definimos uma estrutura que armazenará dados necessários para renderizar
-// cada objeto da cena virtual.
-struct SceneObject
-{
+struct SceneObject {
     std::string  name;        // Nome do objeto
     size_t       first_index; // Índice do primeiro vértice dentro do vetor indices[] definido em BuildTrianglesAndAddToVirtualScene()
     size_t       num_indices; // Número de índices do objeto dentro do vetor indices[] definido em BuildTrianglesAndAddToVirtualScene()
@@ -87,7 +84,37 @@ struct SceneObject
     GLuint       vertex_array_object_id; // ID do VAO onde estão armazenados os atributos do modelo
 };
 
-// Abaixo definimos variáveis globais utilizadas em várias funções do código.
+// enum CameraType {
+//     C_LOOKAT,
+//     C_FREE
+// };
+
+// struct FreeCamera {
+//     float x, y, z;
+//     float phi, theta;
+// };
+// struct LookatCamera {
+//     float dist;
+//     std::string target;
+// };
+
+// struct Camera {
+//     CameraType type;
+//     FreeCamera free;
+//     LookatCamera lookat;  
+// };
+
+// void updateCamera(){ 
+// }
+
+struct KeyState {
+    bool press;
+    bool hold;
+};
+
+#define KEYS_ARR_SIZE (2000)
+/** Use  GLFW_KEY_?  to index this array. */
+KeyState g_keyboardState[KEYS_ARR_SIZE];
 
 // A cena virtual é uma lista de objetos nomeados, guardados em um dicionário
 // (map).  Veja dentro da função BuildTrianglesAndAddToVirtualScene() como que são incluídos
@@ -234,6 +261,56 @@ GLuint ShaderManager::registerProgram(std::string program_name, std::string vert
 }
 
 
+enum RegisteredVariableType { 
+    R_BOOL,
+    R_FLOAT,
+    R_STRING,
+};
+
+std::string variableTypeToStr(RegisteredVariableType t){
+    if(t == R_BOOL) return "bool";
+    if(t == R_FLOAT) return "float";
+    if(t == R_STRING) return "string";
+    return "???";
+}
+
+struct RegisteredVariable {
+    RegisteredVariableType type;
+    
+    float * fr_value;
+    bool * br_value;
+    std::string * sr_value;
+    
+    float fvalue;
+    bool  bvalue;
+    std::string svalue;
+};
+
+RegisteredVariable makeBoolRef(bool* v){
+    return (RegisteredVariable){
+        .type = R_BOOL, 
+        .br_value = v
+    };
+}
+
+RegisteredVariable makeFloatRef(float* v){
+    return (RegisteredVariable){
+        .type = R_FLOAT, 
+        .fr_value = v
+    };
+}
+
+RegisteredVariable makeStringRef(std::string* v){
+    return (RegisteredVariable){
+        .type = R_STRING, 
+        .sr_value = v
+    };
+}
+
+
+std::map< std::string, RegisteredVariable > g_globalVariables;
+
+
 // Variáveis que definem a câmera em coordenadas esféricas, controladas pelo
 // usuário através do mouse (veja função CursorPosCallback()). A posição
 // efetiva da câmera é calculada dentro da função main(), dentro do loop de
@@ -242,9 +319,11 @@ float g_CameraTheta = 0.0f; // Ângulo no plano ZX em relação ao eixo Z
 float g_CameraPhi = 0.0f;   // Ângulo em relação ao eixo Y
 float g_CameraDistance = 3.5f; // Distância da câmera para a origem
 
+std::string g_stringInput = "";
+
 bool g_shouldLogFrame = true;
-bool g_setFixedFPS = true;
-int  g_targetFPS = 30.0;
+bool g_fixedFPS = true;
+float  g_targetFPS = 30.0;
 long long g_experimentalState = 0;
 
 ShaderManager g_shaderManager;
@@ -263,8 +342,130 @@ bool g_UsePerspectiveProjection = true;
 // Variável que controla se o texto informativo será mostrado na tela.
 bool g_ShowInfoText = true;
 
-// Variáveis que definem um programa de GPU (shaders). Veja função LoadShadersFromFiles().
-GLuint g_GpuProgramID = 0;
+enum TypingMode {
+    tm_PLAY = 1, /** Normal game controls */
+    tm_WRITE = 2, /** Writing a command */
+    /** Writing a varible or editing */
+    EDIT_BOOL = 3,  
+    EDIT_STRING = 4,
+    EDIT_FLOAT = 5
+};
+
+TypingMode typingModeOf(RegisteredVariableType rvt){
+    if(rvt == R_BOOL) return EDIT_BOOL;
+    if(rvt == R_STRING) return EDIT_STRING;
+    if(rvt == R_FLOAT) return EDIT_FLOAT;
+    
+    log_severe("Could not find TypingMode for RVT %d.", (int)rvt);
+    std::exit(-1);
+}
+
+std::string typingModeToStr(TypingMode t){
+    if(t == tm_PLAY) return "PLAY";
+    if(t == tm_WRITE) return "WRITE";
+    if(t == EDIT_BOOL) return "bool";
+    if(t == EDIT_STRING) return "string";
+    if(t == EDIT_FLOAT) return "float";
+    
+    return "???";
+}
+
+TypingMode g_typingMode = tm_PLAY;
+std::string g_editVariable = "";
+
+
+void handleStringCommand(std::string command){
+    if(command == "exit"){
+        log_info("Processing command 'exit', shutting down.");
+        std::exit(0);
+    }
+    if(g_globalVariables.find(command) != g_globalVariables.end()){
+        log_info("Captured string command! Will edit variable [%s].", command.c_str());
+        RegisteredVariable r = g_globalVariables[command];
+        g_typingMode = typingModeOf(r.type);
+        g_editVariable = command;
+    } 
+    log_info("Did not recognize string command [%s]. Ignoring", command.c_str());
+    
+}
+
+bool string_to_float(std::string s, float * val){
+    if(s.size() == 0) return false;
+    try {
+        *val = std::stof(s);
+        return true;
+    } catch (const std::exception& ex) {
+        log_info("Could not convert [%s] to float.", s.c_str());
+        return false;
+    }
+}
+
+void handleValueInput(std::string input){
+    bool null_ref = false; bool invalid_input = false;
+    switch(g_typingMode){
+        case EDIT_BOOL:{        
+            bool * ref = g_globalVariables[g_editVariable].br_value;
+            if(ref == NULL){ null_ref = true; break;}
+            if(input.size() == 0 || (input[0] != 'y' && input[0] != 'Y' && input[0] != 'n'  && input[0] != 'N') ){
+                invalid_input = true;
+                break;
+            }
+            bool value = (input[0] == 'y'  || input[0] == 'Y');
+            *ref = value; input = std::to_string(value);
+            break;
+        }
+        case EDIT_FLOAT:{
+            float * ref = g_globalVariables[g_editVariable].fr_value;
+            float value;
+            if(!string_to_float(input, &value)){ invalid_input = true; break; }
+            *ref = value; input = std::to_string(value);
+            break;
+        }
+        case EDIT_STRING:{
+            std::string * ref = g_globalVariables[g_editVariable].sr_value;
+            if(ref == NULL){ null_ref = true; break;}
+            *ref = input; 
+            break;
+        }
+    }
+    if(null_ref) {
+        log_error("Tried to update variable [%s] with a null [%s] reference! Ignoring.");
+        return;
+    }
+    if(invalid_input){
+        log_info("Invalid input for %s variable [%s] : [%d]. Ignoring", variableTypeToStr(g_globalVariables[g_editVariable].type).c_str(),  g_editVariable.c_str(), input);    
+        return;
+    }
+
+    log_info("Success! %s variable [%s] is set to [%s].", variableTypeToStr(g_globalVariables[g_editVariable].type).c_str(),  g_editVariable.c_str(), input.c_str());    
+
+    // Continue in the same mode?
+    // g_typingMode = PLAY;
+}
+
+float g_bombX = 0.0f;
+float g_bombY = 0.0f;
+float g_bombZ = 0.0f;
+float g_bombScale = 1.0f;
+
+bool g_showBunny = false;
+bool g_showBomb = true;
+
+bool initGlobalVariables(){
+    g_globalVariables["cameraTheta"] = makeFloatRef(& g_CameraTheta );
+    g_globalVariables["cameraPhi"] = makeFloatRef(& g_CameraPhi );
+    g_globalVariables["stringInput"] = makeStringRef(& g_stringInput );
+    g_globalVariables["showInfoText"] = makeBoolRef(& g_ShowInfoText );
+    g_globalVariables["targetFPS"] = makeFloatRef(& g_targetFPS );
+    g_globalVariables["fixedFPS"] = makeBoolRef(& g_fixedFPS );
+    g_globalVariables["bombX"] = makeFloatRef(& g_bombX );
+    g_globalVariables["bombY"] = makeFloatRef(& g_bombY );
+    g_globalVariables["bombZ"] = makeFloatRef(& g_bombZ );
+    g_globalVariables["bombScale"] = makeFloatRef(& g_bombScale );
+    g_globalVariables["showBunny"] = makeBoolRef(& g_showBunny );
+    g_globalVariables["showBomb"] = makeBoolRef(& g_showBomb );
+    return true;
+}
 
 void ge_gl_log_vendor_info(){
     const GLubyte *vendor      = glGetString(GL_VENDOR);
@@ -327,6 +528,47 @@ bool ge_gl_init(GLFWwindow** out){
     return true;
 }
 
+void readFilesAndAddObjectsToScene(std::vector<std::string> filenames){
+    log_info("Started reading %d files and adding to scene.", filenames.size());
+    for( std::string filename : filenames){
+        ObjModel model(filename.c_str());
+        ComputeNormals(&model);
+        BuildTrianglesAndAddToVirtualScene(&model);
+    }
+    log_info("Finished reading %d files and adding to scene.", filenames.size());
+}
+
+void CharCallback(GLFWwindow* window, unsigned int codepoint){
+    if( g_typingMode == tm_PLAY){
+        g_stringInput = "";
+        return;
+    }
+    
+    char* arr = static_cast<char*>(static_cast<void*>(&codepoint));
+    
+    if(codepoint < 256){
+        g_stringInput += (unsigned char) codepoint;
+    } else {
+        log_error("The following Unicode codepoint was not understood. [%d]. Ignoring.", codepoint);
+    }
+    log_info("Char callback [%d %d %d %d]. String Input now is [%s]", (int)arr[0], (int)arr[1], (int)arr[2], (int)arr[3], g_stringInput.c_str()); 
+    g_shouldLogFrame = true;
+}
+
+bool clearKeyboardState(bool init = false){
+    for(int i = 0; i < KEYS_ARR_SIZE; ++i){
+        // Only clear 'hold' state if the program is starting.
+        
+        if(init) {
+            g_keyboardState[i].hold = false;
+            g_keyboardState[i].press = false;            
+        } else {
+            g_keyboardState[i].hold = g_keyboardState[i].press || g_keyboardState[i].hold;
+            g_keyboardState[i].press = false;
+        }    
+    }
+    return true;
+}
 
 int main(int argc, char* argv[]) {
     // Inicializamos a biblioteca GLFW, utilizada para criar uma janela do
@@ -335,7 +577,9 @@ int main(int argc, char* argv[]) {
 
     bool initialize_success 
             =  ge_logger_init()
-            && ge_gl_init(&window);
+            && ge_gl_init(&window)
+            && initGlobalVariables()
+            && clearKeyboardState(true);
 
     if( !initialize_success || window == NULL ){
         log_error("Failure on initialization! Exiting ... ");
@@ -346,6 +590,7 @@ int main(int argc, char* argv[]) {
     glfwSetMouseButtonCallback(window, MouseButtonCallback);
     glfwSetCursorPosCallback(window, CursorPosCallback);
     glfwSetScrollCallback(window, ScrollCallback);
+    glfwSetCharCallback(window, CharCallback);
 
     glfwSetWindowSize(window, 800, 800);
 
@@ -363,22 +608,14 @@ int main(int argc, char* argv[]) {
     ShaderManager g_shaderManager;
     g_shaderManager.registerProgram("main", "../src/shader_vertex.glsl","../src/shader_fragment.glsl");
 
-    // LoadShadersFromFiles();
-
     // Construímos a representação de objetos geométricos através de malhas de triângulos
-    ObjModel spheremodel("../data/sphere.obj");
-    ComputeNormals(&spheremodel);
-    BuildTrianglesAndAddToVirtualScene(&spheremodel);
-
-    ObjModel bunnymodel("../data/bunny.obj");
-    ComputeNormals(&bunnymodel);
-    BuildTrianglesAndAddToVirtualScene(&bunnymodel);
-
-    ObjModel planemodel("../data/plane.obj");
-    ComputeNormals(&planemodel);
-    BuildTrianglesAndAddToVirtualScene(&planemodel);
-
-    // Inicializamos o código para renderização de texto.
+    readFilesAndAddObjectsToScene({
+        "../data/sphere.obj",
+        "../data/bunny.obj",
+        "../data/bobomb.obj",
+        "../data/plane.obj"
+    });
+    
     TextRendering_Init();
 
     glEnable(GL_DEPTH_TEST);
@@ -387,11 +624,13 @@ int main(int argc, char* argv[]) {
     glFrontFace(GL_CCW);
 
     long long i_frame = 0;
-    double targetFrameTimeSecs = 1.0 / g_targetFPS;
     
     double lastFrameClock = 0;
 
-    while (!glfwWindowShouldClose(window)) {
+    while(!glfwWindowShouldClose(window)) {
+        double targetFrameTimeSecs = 1.0 / g_targetFPS;
+
+
         ++i_frame;
         
         if(g_shouldLogFrame){
@@ -402,6 +641,10 @@ int main(int argc, char* argv[]) {
         g_shouldLogFrame = false;
         log_info("Cleared logging queue and started frame %d.", i_frame);
 
+        log_info("Typing mode is currently %s.", typingModeToStr(g_typingMode).c_str());
+        
+        clearKeyboardState();
+        
         //           R     G     B     A
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -440,7 +683,7 @@ int main(int argc, char* argv[]) {
         // Note que, no sistema de coordenadas da câmera, os planos near e far
         // estão no sentido negativo! Veja slides 176-204 do documento Aula_09_Projecoes.pdf.
         float nearplane = -0.1f;  // Posição do "near plane"
-        float farplane  = -10.0f; // Posição do "far plane"
+        float farplane  = -300.0f; // Posição do "far plane"
 
         if (g_UsePerspectiveProjection) {
             // Projeção Perspectiva.
@@ -478,14 +721,26 @@ int main(int argc, char* argv[]) {
         glUniform1i(g_object_id_uniform, SPHERE);
         DrawVirtualObject("the_sphere");
 
-        // Desenhamos o modelo do coelho
-        model = Matrix_Translate(1.0f,0.0f,0.0f)
-              * Matrix_Rotate_Z(g_AngleZ)
-              * Matrix_Rotate_Y(g_AngleY)
-              * Matrix_Rotate_X(g_AngleX);
-        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, BUNNY);
-        DrawVirtualObject("the_bunny");
+        if( g_showBunny ){
+            // Desenhamos o modelo do coelho
+            model = Matrix_Translate(1.0f,0.0f,0.0f)
+                * Matrix_Rotate_Z(g_AngleZ)
+                * Matrix_Rotate_Y(g_AngleY)
+                * Matrix_Rotate_X(g_AngleX);
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            glUniform1i(g_object_id_uniform, BUNNY);
+            DrawVirtualObject("the_bunny");
+        }
+        
+        if( g_showBomb ){
+            model = Matrix_Translate(g_bombX,g_bombY,g_bombZ)
+                * Matrix_Scale(g_bombScale, g_bombScale, g_bombScale);
+
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, BUNNY);
+            DrawVirtualObject("bomb1");
+            DrawVirtualObject("bomb2");
+        }
 
 
         model = Matrix_Translate(0.0f,-1.0f,0.0f)
@@ -493,6 +748,24 @@ int main(int argc, char* argv[]) {
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
         glUniform1i(g_object_id_uniform, PLANE);
         DrawVirtualObject("the_plane");
+        
+        char debug_info[500] = {0};
+        
+        snprintf(debug_info, 499, "?");
+        
+        if( g_typingMode == tm_PLAY ){
+            snprintf(debug_info, 499, "Play");
+        }
+        if( g_typingMode == tm_WRITE) {
+            snprintf(debug_info, 499, "> %s", g_stringInput.c_str());
+        }
+        if( g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT || g_typingMode == EDIT_STRING ){
+            snprintf(debug_info, 499, "%s %s = %s", typingModeToStr(g_typingMode).c_str(), g_editVariable.c_str(), g_stringInput.c_str());
+        }
+
+        float pad = TextRendering_LineHeight(window);
+        TextRendering_PrintString(window, debug_info, -1.0f, 1.0f-pad, 1.0f);
+
         
         if ( g_ShowInfoText ) {
             TextRendering_ShowEulerAngles(window, g_AngleX, g_AngleY, g_AngleZ);
@@ -519,10 +792,10 @@ int main(int argc, char* argv[]) {
         int sleepTimeMillis = std::max( 0, (int)(1000.0*sleepTime));
         
         log_info("Finished frame in %.4lf seconds (Target is %.4lf). SleepTime = %d ms. ", currentFrameDuration, targetFrameTimeSecs, sleepTimeMillis);
-        if( g_setFixedFPS ){
-            log_info("Will not sleep as fixed FPS is disabled.");
-        } else {
+        if( g_fixedFPS ){
             std::this_thread::sleep_for(std::chrono::milliseconds(sleepTimeMillis));        
+        } else {
+            log_info("Will not sleep as fixed FPS is disabled.");
         }
         lastFrameClock = glfwGetTime();
     }
@@ -560,8 +833,7 @@ void DrawVirtualObject(const char* object_name) {
 }
 
 // Função que pega a matriz M e guarda a mesma no topo da pilha
-void PushMatrix(glm::mat4 M)
-{
+void PushMatrix(glm::mat4 M){
     g_MatrixStack.push(M);
 }
 
@@ -708,7 +980,8 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel* model) {
         theobject.num_indices    = last_index - first_index + 1; // Número de indices
         theobject.rendering_mode = GL_TRIANGLES;       // Índices correspondem ao tipo de rasterização GL_TRIANGLES.
         theobject.vertex_array_object_id = vertex_array_object_id;
-
+        
+        log_info("Registered object! [%s]", model->shapes[shape].name.c_str());
         g_VirtualScene[model->shapes[shape].name] = theobject;
     }
 
@@ -965,46 +1238,7 @@ void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
         g_CameraDistance = verysmallnumber;
 }
 
-// Definição da função que será chamada sempre que o usuário pressionar alguma
-// tecla do teclado. Veja http://www.glfw.org/docs/latest/input_guide.html#input_key
-void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod) {
-    // Se o usuário pressionar a tecla ESC, fechamos a janela.
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GL_TRUE);
-
-    // O código abaixo implementa a seguinte lógica:
-    //   Se apertar tecla X       então g_AngleX += delta;
-    //   Se apertar tecla shift+X então g_AngleX -= delta;
-    //   Se apertar tecla Y       então g_AngleY += delta;
-    //   Se apertar tecla shift+Y então g_AngleY -= delta;
-    //   Se apertar tecla Z       então g_AngleZ += delta;
-    //   Se apertar tecla shift+Z então g_AngleZ -= delta;
-
-    float delta = 3.141592 / 16; // 22.5 graus, em radianos.
-
-    if (key == GLFW_KEY_X && action == GLFW_PRESS) {
-        g_AngleX += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
-    }
-
-    if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
-        g_AngleY += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
-    }
-    if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
-        g_AngleZ += (mod & GLFW_MOD_SHIFT) ? -delta : delta;
-    }
-
-    // Se o usuário apertar a tecla espaço, resetamos os ângulos de Euler para zero.
-    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-        g_AngleX = 0.0f;
-        g_AngleY = 0.0f;
-        g_AngleZ = 0.0f;
-        g_ForearmAngleX = 0.0f;
-        g_ForearmAngleZ = 0.0f;
-        g_TorsoPositionX = 0.0f;
-        g_TorsoPositionY = 0.0f;
-    }
-
-    // Se o usuário apertar a tecla P, utilizamos projeção perspectiva.
+void defaultKeyCallback(int key, int scancode, int action, int mod){
     if (key == GLFW_KEY_P && action == GLFW_PRESS) {
         g_UsePerspectiveProjection = true;
     }
@@ -1029,10 +1263,56 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         g_shouldLogFrame = true;
     }
     if (key == GLFW_KEY_M && action == GLFW_PRESS) {
-        g_setFixedFPS = !g_setFixedFPS;
+        g_fixedFPS = !g_fixedFPS;
     }
     if(key == GLFW_KEY_E && action == GLFW_PRESS) {
         ++g_experimentalState;
         log_info("Next experimental state. [%d]",g_experimentalState);
+    }    
+}
+
+// Definição da função que será chamada sempre que o usuário pressionar alguma
+// tecla do teclado. Veja http://www.glfw.org/docs/latest/input_guide.html#input_key
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod) {
+    // Se o usuário pressionar a tecla ESC, fechamos a janela.
+    g_keyboardState[key] = {
+        /** See also GLFW_PRESS and GLFW_REPEAT */
+        .press = action== GLFW_PRESS,
+        .hold  = !(action == GLFW_RELEASE)
+    };
+
+    bool shiftHold = g_keyboardState[GLFW_KEY_RIGHT_SHIFT].hold || g_keyboardState[GLFW_KEY_LEFT_SHIFT].hold;
+    bool ctrlHold  = g_keyboardState[GLFW_KEY_RIGHT_CONTROL].hold || g_keyboardState[GLFW_KEY_LEFT_CONTROL].hold;
+
+    if(ctrlHold && g_keyboardState[GLFW_KEY_Q].press )
+        glfwSetWindowShouldClose(window, GL_TRUE);
+
+    log_assert(key >= 0 && key < KEYS_ARR_SIZE, "Key array size is too small. %d. ", key);
+
+    /** Note the distinction between PRESS and HOLD. */
+    if(key == g_keyboardState[GLFW_KEY_ESCAPE].press){
+        g_typingMode = tm_PLAY;
+    }
+    if(ctrlHold && g_keyboardState[GLFW_KEY_1].press){
+        g_typingMode = tm_WRITE;
+    }
+
+    if(g_keyboardState[GLFW_KEY_BACKSPACE].press){
+        if(! g_stringInput.empty() )
+            g_stringInput.pop_back();
+    }    
+    if(g_keyboardState[GLFW_KEY_ENTER].press){
+        if( g_typingMode == tm_WRITE){
+            handleStringCommand(g_stringInput);
+        }        
+        if( g_typingMode == EDIT_STRING || g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT){
+            handleValueInput(g_stringInput);
+        }
+        g_shouldLogFrame = true;
+        g_stringInput = "";
+    }
+
+    if( g_typingMode == tm_PLAY ){
+        defaultKeyCallback(key,scancode,action,mod);
     }
 }
