@@ -24,6 +24,7 @@ Malha poligonal complexa: foram colocados blocos que interagem com o bob-omb, ta
 Interação entre objetos: foram feitas colisões cubo-cubo em todos os objetos, incluindo o Bob-omb, mesmo ele sendo redondo.
 
 Iluminação de Blinn-Phong: os objetos foram todos iluminados usando blinn-phong.
+
 Mapeamento de textura: uilizada em todos os objetos. Para o chão a textura se repete multiplas vezes para que a imagem não fique esticada.
 
 Curva de Bézier: utilizada em um cubo que se meve utilizando a curva de Bézier e sua inversa, ou seja, faz um caminha de ida e o mesmo para voltar.
@@ -40,6 +41,8 @@ A: move para a direita;
 W: move para frente;
 D: move para a esquerda;
 espace: pula.
+
+A camera look at do Bob-omb pode ser movimentada usando o botão esquerdo do mouse.
 
 Para alterar para camera livre deve-se clicar 'Ctrl+1', escrever freeCamera e clicar 'enter'. Para alterar a posição da camera as setas são utilizadas.
 Para trocar o FPS deve-se clicar 'Ctrl+1', escrever targetFPS, escolher o FPS desejado e clicar 'enter'.
