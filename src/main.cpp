@@ -37,6 +37,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <tiny_obj_loader.h>
+#include <stb_image.h>
 
 #include "utils.h"
 #include "matrices.h"
@@ -49,6 +50,7 @@
 
 #include "model.h"
 #include "logger.h"
+#include "registered_variables.h"
 
 #define WINDOW_NAME ("Game!")
 
@@ -76,7 +78,7 @@ void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
-struct SceneObject {
+struct Model {
     std::string  name;        // Nome do objeto
     size_t       first_index; // Índice do primeiro vértice dentro do vetor indices[] definido em BuildTrianglesAndAddToVirtualScene()
     size_t       num_indices; // Número de índices do objeto dentro do vetor indices[] definido em BuildTrianglesAndAddToVirtualScene()
@@ -84,28 +86,115 @@ struct SceneObject {
     GLuint       vertex_array_object_id; // ID do VAO onde estão armazenados os atributos do modelo
 };
 
-// enum CameraType {
-//     C_LOOKAT,
-//     C_FREE
+// enum CollisionType {
+//     NONE = 0,
+//     CUBE,
+//     SPHERE
+// }; 
+
+// struct GameObject {
+//     CollisionType collision;
+//     std::string model_name;
+//     glm::vec4 pos;
+//     glm::vec4 rot;
+//     float scale;
 // };
 
-// struct FreeCamera {
-//     float x, y, z;
-//     float phi, theta;
-// };
-// struct LookatCamera {
-//     float dist;
-//     std::string target;
-// };
+enum CameraType {
+    C_LOOKAT,
+    C_FREE
+};
 
-// struct Camera {
-//     CameraType type;
-//     FreeCamera free;
-//     LookatCamera lookat;  
-// };
+struct FreeCamera {
+    glm::vec4 pos;
+    //will not always look 'forward'
+    float phi, theta;
+};
+struct LookatCamera {
+    float dist;
+    std::string target;
+    float phi, theta;
+};
 
-// void updateCamera(){ 
-// }
+struct Camera {
+    CameraType type;
+    FreeCamera free;
+    LookatCamera lookat;  
+};
+
+struct Movable {
+    glm::vec4 pos;
+    glm::vec4 vel; // relative to himself
+    glm::vec4 front;
+    float   y_angle;
+    float   scale;
+};
+
+Movable g_hero = {
+    .pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+    .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+    .y_angle = 0.0f,
+    .scale = 1
+};
+
+
+glm::vec4 unit_vector_towards(float phi, float theta){
+    // PHI in relation to Y axis, starting with the horizontal;
+    // THETA in relation ZX plane, counting from Z axis, so Z direction when theta=0;  
+    float x = cos(phi) * sin(-theta);    
+    float z = cos(phi) * cos(-theta);
+    float y = sin(phi);
+    return glm::vec4(x,y,z, 0.0f);
+}
+
+
+Camera g_camera = {
+    .type = C_LOOKAT,
+    .free = {
+        .pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+        .phi = -0.5,
+        .theta = 0.5
+    },
+    .lookat = {
+        .dist = 41,
+        .phi = 0.480,
+        .theta = 0.0        
+    }
+};
+
+glm::mat4 computeViewMatrix( Camera & camera ){ 
+    log_info("Camemra initial [p  %.2f  t  %.2f]", g_camera.lookat.phi, g_camera.lookat.theta);
+
+
+    glm::vec4 vec_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    glm::vec4 vec_front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+    glm::vec4 camera_pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+    if( camera.type == C_LOOKAT ){
+        /***/
+        
+        LookatCamera& c = camera.lookat;
+        glm::vec4 camera_dir_vec =  Matrix_Rotate_Y(g_hero.y_angle) * unit_vector_towards(-g_camera.lookat.phi,- g_camera.lookat.theta); 
+        
+        log_info("[%.2f %.2f %.2f %.2f]", camera_dir_vec.x, camera_dir_vec.y, camera_dir_vec.z, camera_dir_vec.w);
+        
+        vec_front = camera_dir_vec / norm(camera_dir_vec); //Always look at him from behind ; unit_vector_towards(c.phi, c.theta);
+        camera_pos = g_hero.pos - vec_front*c.dist;
+    } else {
+        FreeCamera& c = camera.free;
+        
+        vec_front = unit_vector_towards(c.phi, c.theta);
+        glm::vec4 vec_right = crossproduct(vec_front, vec_up); 
+        glm::vec4 vec_left = -vec_right;
+
+        camera_pos = c.pos; // Ponto "c", centro da câmera
+    }
+    log_info("Camemra final [p  %.2f  t  %.2f]", g_camera.lookat.phi, g_camera.lookat.theta);
+    return Matrix_Camera_View(camera_pos, vec_front, vec_up);
+}
+
+
 
 struct KeyState {
     bool press;
@@ -120,7 +209,7 @@ KeyState g_keyboardState[KEYS_ARR_SIZE];
 // (map).  Veja dentro da função BuildTrianglesAndAddToVirtualScene() como que são incluídos
 // objetos dentro da variável g_VirtualScene, e veja na função main() como
 // estes são acessados.
-std::map<std::string, SceneObject> g_VirtualScene;
+std::map<std::string, Model> g_VirtualScene;
 
 // Pilha que guardará as matrizes de modelagem.
 std::stack<glm::mat4>  g_MatrixStack;
@@ -143,6 +232,59 @@ GLint g_object_id_uniform;
 bool g_LeftMouseButtonPressed = false;
 bool g_RightMouseButtonPressed = false; // Análogo para botão direito do mouse
 bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mouse
+
+
+class TextureManager {
+public: 
+    std::map<std::string, GLuint> texture_ids;
+    
+    void loadTexture(std::string name, std::string refname = "");
+};
+
+TextureManager g_textureManager;
+
+
+void TextureManager::loadTexture(std::string name, std::string refname){
+    if( refname == "" ) refname = name;
+    std::string filename = "../data/" + name + ".png";
+    log_info("Will load texture %s [%d] from file %s", name.c_str(), texture_ids.size(), filename.c_str());
+    stbi_set_flip_vertically_on_load(true);
+    
+    int width, height, channels;
+    unsigned char *data = stbi_load(filename.c_str(), &width, &height, &channels, 3);
+
+    log_assert(data != NULL, "Could not load image from [%s]", filename.c_str());
+    log_info("Loaded image with h %d w %d c %d" , height, width, channels);
+    
+    GLuint texture_id, sampler_id;
+    glGenTextures(1, &texture_id);
+    glGenSamplers(1, &sampler_id);
+
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    // Parâmetros de amostragem da textura.
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Agora enviamos a imagem lida do disco para a GPU
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+
+    GLuint textureunit = (GLuint) texture_ids.size();
+
+    glActiveTexture(GL_TEXTURE0 + textureunit);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindSampler(textureunit, sampler_id);
+
+    stbi_image_free(data);
+    
+    texture_ids[ refname ] = textureunit;
+}
 
 class ShaderManager {
 public:
@@ -184,6 +326,17 @@ GLuint ShaderManager::getProgramId(std::string program_name){
     g_projection_uniform = glGetUniformLocation(program_id, "projection"); // Variável da matriz "projection" em shader_vertex.glsl
     g_object_id_uniform  = glGetUniformLocation(program_id, "object_id"); // Variável "object_id" em shader_fragment.glsl
 
+    for( auto & [ texture_name, texture_id ] : g_textureManager.texture_ids ){  
+        // When the shader does not have the uniform,   glGetUniformLocation outputs -1.
+        // When glUniform1i receives -1, it will silently ignore (i.e. not put a texture where it shouldn't)
+        // So referencing textures by name is actually fine. 
+        log_debug("Binding uniform texture [%s] = %d to program.", texture_name.c_str(), texture_id);
+        GLint uniform_location = glGetUniformLocation(program_id, texture_name.c_str());
+        glUniform1i( uniform_location, texture_id);
+        if( uniform_location == -1 ){
+            log_debug("Warning: shader uniform unbound!");
+        }
+    }
     return program_id;
 }
 
@@ -260,66 +413,18 @@ GLuint ShaderManager::registerProgram(std::string program_name, std::string vert
     return program_id;
 }
 
-
-enum RegisteredVariableType { 
-    R_BOOL,
-    R_FLOAT,
-    R_STRING,
-};
-
-std::string variableTypeToStr(RegisteredVariableType t){
-    if(t == R_BOOL) return "bool";
-    if(t == R_FLOAT) return "float";
-    if(t == R_STRING) return "string";
-    return "???";
-}
-
-struct RegisteredVariable {
-    RegisteredVariableType type;
-    
-    float * fr_value;
-    bool * br_value;
-    std::string * sr_value;
-    
-    float fvalue;
-    bool  bvalue;
-    std::string svalue;
-};
-
-RegisteredVariable makeBoolRef(bool* v){
-    return (RegisteredVariable){
-        .type = R_BOOL, 
-        .br_value = v
-    };
-}
-
-RegisteredVariable makeFloatRef(float* v){
-    return (RegisteredVariable){
-        .type = R_FLOAT, 
-        .fr_value = v
-    };
-}
-
-RegisteredVariable makeStringRef(std::string* v){
-    return (RegisteredVariable){
-        .type = R_STRING, 
-        .sr_value = v
-    };
-}
-
-
 std::map< std::string, RegisteredVariable > g_globalVariables;
-
+TypingMode g_typingMode = tm_PLAY;
+std::string g_stringInput = "";
+std::string g_editVariable = "";
 
 // Variáveis que definem a câmera em coordenadas esféricas, controladas pelo
 // usuário através do mouse (veja função CursorPosCallback()). A posição
 // efetiva da câmera é calculada dentro da função main(), dentro do loop de
 // renderização.
-float g_CameraTheta = 0.0f; // Ângulo no plano ZX em relação ao eixo Z
-float g_CameraPhi = 0.0f;   // Ângulo em relação ao eixo Y
-float g_CameraDistance = 3.5f; // Distância da câmera para a origem
-
-std::string g_stringInput = "";
+//float g_CameraTheta = -3.14f; // Ângulo no plano ZX em relação ao eixo Z
+//float g_CameraPhi = 0.75f;   // Ângulo em relação ao eixo Y
+//float g_CameraDistance = 80; // Distância da câmera para a origem
 
 bool g_shouldLogFrame = true;
 bool g_fixedFPS = true;
@@ -336,43 +441,58 @@ float g_ForearmAngleX = 0.0f;
 float g_TorsoPositionX = 0.0f;
 float g_TorsoPositionY = 0.0f;
 
-// Variável que controla o tipo de projeção utilizada: perspectiva ou ortográfica.
+/// Variável que controla o tipo de projeção utilizada: perspectiva ou ortográfica.
 bool g_UsePerspectiveProjection = true;
 
 // Variável que controla se o texto informativo será mostrado na tela.
 bool g_ShowInfoText = true;
 
-enum TypingMode {
-    tm_PLAY = 1, /** Normal game controls */
-    tm_WRITE = 2, /** Writing a command */
-    /** Writing a varible or editing */
-    EDIT_BOOL = 3,  
-    EDIT_STRING = 4,
-    EDIT_FLOAT = 5
-};
+// bool g_showBunny = false;
+bool g_showBomb = true;
+bool g_showSphere = false;
 
-TypingMode typingModeOf(RegisteredVariableType rvt){
-    if(rvt == R_BOOL) return EDIT_BOOL;
-    if(rvt == R_STRING) return EDIT_STRING;
-    if(rvt == R_FLOAT) return EDIT_FLOAT;
+
+float g_baseSpeed = 40.0f;
+float g_baseSideSpeed = 8.0f;
+float g_baseAngleSpeed = 2.0f; // in radians per second?
+
+void setSpeedByKeyboard(Movable& m, float delta_time){
+    float frontSpeed = 0.0f;
+    float sideSpeed = 0.0f;
     
-    log_severe("Could not find TypingMode for RVT %d.", (int)rvt);
-    std::exit(-1);
+    
+    if(g_keyboardState[ GLFW_KEY_W ].hold )  frontSpeed += 1;
+    if(g_keyboardState[ GLFW_KEY_S ].hold )  frontSpeed -= 1;
+    if(g_keyboardState[ GLFW_KEY_A ].hold )   sideSpeed -= 1;
+    if(g_keyboardState[ GLFW_KEY_D ].hold )   sideSpeed += 1;
+
+    log_debug("Object speed %f %f ", m.vel[0], m.vel[1]);
+    m.vel[ 2 ] = std::max(frontSpeed * g_baseSpeed,  std::abs(sideSpeed) * g_baseSideSpeed);
+    //m.vel[ 1 ] =   0 ; // no vertical speed from keyboard
+    m.vel[ 0 ] = 0; 
+
+    float angleSpeed = -1 *  sideSpeed *  g_baseAngleSpeed * delta_time;
+    log_info("Angle speed is %f %f %f = %f ", sideSpeed, g_baseAngleSpeed, delta_time, angleSpeed);
+
+    glm::vec4 newfront = m.front;
+    m.y_angle += angleSpeed;
+//    newfront[0]
+    newfront[0] =  m.front[2] * sin(angleSpeed) + m.front[0] * cos(angleSpeed);
+    newfront[1] = 0; // It helps with the camera calculation if 'front' is completely horizontal.
+    newfront[2] =  m.front[2] * cos(angleSpeed) - m.front[0] * sin(angleSpeed);
+    
+    m.front = newfront;
 }
 
-std::string typingModeToStr(TypingMode t){
-    if(t == tm_PLAY) return "PLAY";
-    if(t == tm_WRITE) return "WRITE";
-    if(t == EDIT_BOOL) return "bool";
-    if(t == EDIT_STRING) return "string";
-    if(t == EDIT_FLOAT) return "float";
-    
-    return "???";
+void moveObject(Movable & m, float delta_time){    
+    glm::vec4 vec_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    glm::vec4 vec_right = crossproduct(m.front, vec_up); 
+    glm::vec4 vec_left = -vec_right;
+
+    m.pos +=  m.front   *  m.vel[2] * delta_time;
+    m.pos +=  vec_up    *  m.vel[1] * delta_time;
+    m.pos +=  vec_right *  m.vel[0] * delta_time;
 }
-
-TypingMode g_typingMode = tm_PLAY;
-std::string g_editVariable = "";
-
 
 void handleStringCommand(std::string command){
     if(command == "exit"){
@@ -384,86 +504,34 @@ void handleStringCommand(std::string command){
         RegisteredVariable r = g_globalVariables[command];
         g_typingMode = typingModeOf(r.type);
         g_editVariable = command;
+        log_info("%s %s = %s", variableTypeToStr(r.type).c_str(), command.c_str(), variableValueToString(r).c_str());
+    } else {
+        log_info("Did not recognize string command [%s]. Ignoring", command.c_str());    
     } 
-    log_info("Did not recognize string command [%s]. Ignoring", command.c_str());
     
 }
 
-bool string_to_float(std::string s, float * val){
-    if(s.size() == 0) return false;
-    try {
-        *val = std::stof(s);
-        return true;
-    } catch (const std::exception& ex) {
-        log_info("Could not convert [%s] to float.", s.c_str());
-        return false;
-    }
-}
-
-void handleValueInput(std::string input){
-    bool null_ref = false; bool invalid_input = false;
-    switch(g_typingMode){
-        case EDIT_BOOL:{        
-            bool * ref = g_globalVariables[g_editVariable].br_value;
-            if(ref == NULL){ null_ref = true; break;}
-            if(input.size() == 0 || (input[0] != 'y' && input[0] != 'Y' && input[0] != 'n'  && input[0] != 'N') ){
-                invalid_input = true;
-                break;
-            }
-            bool value = (input[0] == 'y'  || input[0] == 'Y');
-            *ref = value; input = std::to_string(value);
-            break;
-        }
-        case EDIT_FLOAT:{
-            float * ref = g_globalVariables[g_editVariable].fr_value;
-            float value;
-            if(!string_to_float(input, &value)){ invalid_input = true; break; }
-            *ref = value; input = std::to_string(value);
-            break;
-        }
-        case EDIT_STRING:{
-            std::string * ref = g_globalVariables[g_editVariable].sr_value;
-            if(ref == NULL){ null_ref = true; break;}
-            *ref = input; 
-            break;
-        }
-    }
-    if(null_ref) {
-        log_error("Tried to update variable [%s] with a null [%s] reference! Ignoring.");
-        return;
-    }
-    if(invalid_input){
-        log_info("Invalid input for %s variable [%s] : [%d]. Ignoring", variableTypeToStr(g_globalVariables[g_editVariable].type).c_str(),  g_editVariable.c_str(), input);    
-        return;
-    }
-
-    log_info("Success! %s variable [%s] is set to [%s].", variableTypeToStr(g_globalVariables[g_editVariable].type).c_str(),  g_editVariable.c_str(), input.c_str());    
-
-    // Continue in the same mode?
-    // g_typingMode = PLAY;
-}
-
-float g_bombX = 0.0f;
-float g_bombY = 0.0f;
-float g_bombZ = 0.0f;
-float g_bombScale = 1.0f;
-
-bool g_showBunny = false;
-bool g_showBomb = true;
 
 bool initGlobalVariables(){
-    g_globalVariables["cameraTheta"] = makeFloatRef(& g_CameraTheta );
-    g_globalVariables["cameraPhi"] = makeFloatRef(& g_CameraPhi );
+    // Camera
+    g_globalVariables["cameraDist"] = makeFloatRef(& g_camera.lookat.dist );
+    g_globalVariables["cameraTheta"] = makeFloatRef(& g_camera.lookat.theta );
+    g_globalVariables["cameraPhi"] = makeFloatRef(& g_camera.lookat.phi );
+    // Input/Output
     g_globalVariables["stringInput"] = makeStringRef(& g_stringInput );
     g_globalVariables["showInfoText"] = makeBoolRef(& g_ShowInfoText );
     g_globalVariables["targetFPS"] = makeFloatRef(& g_targetFPS );
     g_globalVariables["fixedFPS"] = makeBoolRef(& g_fixedFPS );
-    g_globalVariables["bombX"] = makeFloatRef(& g_bombX );
-    g_globalVariables["bombY"] = makeFloatRef(& g_bombY );
-    g_globalVariables["bombZ"] = makeFloatRef(& g_bombZ );
-    g_globalVariables["bombScale"] = makeFloatRef(& g_bombScale );
-    g_globalVariables["showBunny"] = makeBoolRef(& g_showBunny );
+    // 
+    g_globalVariables["bombX"] = makeFloatRef(& g_hero.pos[0] );
+    g_globalVariables["bombY"] = makeFloatRef(& g_hero.pos[1] );
+    g_globalVariables["bombZ"] = makeFloatRef(& g_hero.pos[2] );
+    g_globalVariables["bombScale"] = makeFloatRef(& g_hero.scale );
+    // g_globalVariables["showBunny"] = makeBoolRef(& g_showBunny );
     g_globalVariables["showBomb"] = makeBoolRef(& g_showBomb );
+    g_globalVariables["showSphere"] = makeBoolRef(& g_showSphere );
+    g_globalVariables["baseSpeed"] = makeFloatRef(& g_baseSpeed);    
+    g_globalVariables["baseASpeed"] = makeFloatRef(& g_baseAngleSpeed);
     return true;
 }
 
@@ -505,6 +573,8 @@ bool ge_gl_init(GLFWwindow** out){
     glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+
+    glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
 
     #ifdef __APPLE__
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -576,7 +646,10 @@ int main(int argc, char* argv[]) {
     GLFWwindow * window;
 
     bool initialize_success 
-            =  ge_logger_init()
+            =  ge_logger_init();
+            
+    log_info("Started program.");
+    initialize_success &= true
             && ge_gl_init(&window)
             && initGlobalVariables()
             && clearKeyboardState(true);
@@ -612,9 +685,16 @@ int main(int argc, char* argv[]) {
     readFilesAndAddObjectsToScene({
         "../data/sphere.obj",
         "../data/bunny.obj",
+        "../data/floor.obj",
         "../data/bobomb.obj",
-        "../data/plane.obj"
+        "../data/painting.obj",
     });
+    
+    g_textureManager.loadTexture("bomb_other"); // TextureImage1
+    g_textureManager.loadTexture("bomb_body");  // TextureImage0
+    g_textureManager.loadTexture("floor_tile");
+    g_textureManager.loadTexture("painting");
+    // g_textureManager.loadTexture("wall_tile2", "wall_tile");
     
     TextRendering_Init();
 
@@ -627,6 +707,9 @@ int main(int argc, char* argv[]) {
     
     double lastFrameClock = 0;
 
+    log_info("Finished initialization.");
+
+    double last_delta_sample = glfwGetTime(); 
     while(!glfwWindowShouldClose(window)) {
         double targetFrameTimeSecs = 1.0 / g_targetFPS;
 
@@ -642,9 +725,30 @@ int main(int argc, char* argv[]) {
         log_info("Cleared logging queue and started frame %d.", i_frame);
 
         log_info("Typing mode is currently %s.", typingModeToStr(g_typingMode).c_str());
-        
+                
         clearKeyboardState();
         
+        //////////////////////////////////////////////////////////////////////
+        // Physics
+        double current_clock = glfwGetTime();
+        float delta_time = (float) (current_clock - last_delta_sample);
+        
+        /* When the timespan is too high (i.e. giant lag), presume restarting from 'average' frame */
+        if( delta_time > 0.5 ){
+            delta_time = 0.05;  
+        }
+        log_info("Physics Delta Time is %f ", delta_time); 
+        
+        if( g_typingMode == tm_PLAY ){
+            setSpeedByKeyboard(g_hero, delta_time);            
+        }
+        moveObject(g_hero, delta_time);
+        
+        last_delta_sample = current_clock;
+        //////////////////////////////////////////////////////////////////////
+        // Rendering 
+
+
         //           R     G     B     A
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -661,21 +765,23 @@ int main(int argc, char* argv[]) {
         // variáveis g_CameraDistance, g_CameraPhi, e g_CameraTheta são
         // controladas pelo mouse do usuário. Veja as funções CursorPosCallback()
         // e ScrollCallback().
-        float r = g_CameraDistance;
-        float y = r*sin(g_CameraPhi);
-        float z = r*cos(g_CameraPhi)*cos(g_CameraTheta);
-        float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
+
+        glm::mat4 view_matrix = computeViewMatrix( g_camera );
+        // float r = g_camera.;
+        // float y = r*sin(g_CameraPhi);
+        // float z = r*cos(g_CameraPhi)*cos(g_CameraTheta);
+        // float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
 
         // Abaixo definimos as varáveis que efetivamente definem a câmera virtual.
         // Veja slides 195-227 e 229-234 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        glm::vec4 camera_position_c  = glm::vec4(x,y,z,1.0f); // Ponto "c", centro da câmera
-        glm::vec4 camera_lookat_l    = glm::vec4(0.0f,0.0f,0.0f,1.0f); // Ponto "l", para onde a câmera (look-at) estará sempre olhando
-        glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
-        glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
+        // glm::vec4 camera_position_c  = glm::vec4(x,y,z,1.0f); // Ponto "c", centro da câmera
+        // glm::vec4 camera_lookat_l    = glm::vec4(0.0f,0.0f,0.0f,1.0f); // Ponto "l", para onde a câmera (look-at) estará sempre olhando
+        // glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
+        // glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
 
         // Computamos a matriz "View" utilizando os parâmetros da câmera para
         // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        glm::mat4 view = Matrix_Camera_View(camera_position_c, camera_view_vector, camera_up_vector);
+        // glm::mat4 view = Matrix_Camera_View(camera_position_c, camera_view_vector, camera_up_vector);
 
         // Agora computamos a matriz de Projeção.
         glm::mat4 projection;
@@ -696,7 +802,7 @@ int main(int argc, char* argv[]) {
             // PARA PROJEÇÃO ORTOGRÁFICA veja slides 219-224 do documento Aula_09_Projecoes.pdf.
             // Para simular um "zoom" ortográfico, computamos o valor de "t"
             // utilizando a variável g_CameraDistance.
-            float t = 1.5f*g_CameraDistance/2.5f;
+            float t = 1.5f*g_camera.lookat.dist/2.5f;
             float b = -t;
             float r = t*g_ScreenRatio;
             float l = -r;
@@ -708,46 +814,63 @@ int main(int argc, char* argv[]) {
         // Enviamos as matrizes "view" e "projection" para a placa de vídeo
         // (GPU). Veja o arquivo "shader_vertex.glsl", onde estas são
         // efetivamente aplicadas em todos os pontos.
-        glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view));
+        glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view_matrix));
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
-        #define SPHERE 0
-        #define BUNNY  1
-        #define PLANE  2
+        #define SPHERE      0
+        #define BUNNY       1
+        #define PLANE       2
+        #define BOMB_BODY   3
+        #define BOMB_OTHER  4
+        #define WALL        5
+        #define PAINTING    6
 
         // Desenhamos o modelo da esfera
-        model = Matrix_Translate(-1.0f,0.0f,0.0f);
-        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, SPHERE);
-        DrawVirtualObject("the_sphere");
-
-        if( g_showBunny ){
-            // Desenhamos o modelo do coelho
-            model = Matrix_Translate(1.0f,0.0f,0.0f)
-                * Matrix_Rotate_Z(g_AngleZ)
-                * Matrix_Rotate_Y(g_AngleY)
-                * Matrix_Rotate_X(g_AngleX);
+        if( g_showSphere ) {
+            model = Matrix_Translate(-1.0f,0.0f,0.0f);
             glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-            glUniform1i(g_object_id_uniform, BUNNY);
-            DrawVirtualObject("the_bunny");
-        }
-        
-        if( g_showBomb ){
-            model = Matrix_Translate(g_bombX,g_bombY,g_bombZ)
-                * Matrix_Scale(g_bombScale, g_bombScale, g_bombScale);
+            glUniform1i(g_object_id_uniform, SPHERE);
+            DrawVirtualObject("the_sphere");
+        } 
 
-            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-                glUniform1i(g_object_id_uniform, BUNNY);
-            DrawVirtualObject("bomb1");
-            DrawVirtualObject("bomb2");
-        }
-
-
-        model = Matrix_Translate(0.0f,-1.0f,0.0f)
-              * Matrix_Scale(2.0f, 1.0f, 2.0f);
+        model = Matrix_Identity();
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
         glUniform1i(g_object_id_uniform, PLANE);
         DrawVirtualObject("the_plane");
+
+        // if( g_showBunny ){
+        //     // Desenhamos o modelo do coelho
+        //     model = Matrix_Translate(1.0f,0.0f,0.0f)
+        //         * Matrix_Rotate_Z(g_AngleZ)
+        //         * Matrix_Rotate_Y(g_AngleY)
+        //         * Matrix_Rotate_X(g_AngleX);
+        //     glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        //     glUniform1i(g_object_id_uniform, BUNNY);
+        //     DrawVirtualObject("the_bunny");
+        // }
+        
+        if( g_showBomb ){
+            model = Matrix_Translate(g_hero.pos[0],g_hero.pos[1],g_hero.pos[2])
+                * Matrix_Scale(g_hero.scale, g_hero.scale, g_hero.scale)
+                * Matrix_Rotate_Y(g_hero.y_angle);
+
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+
+            glUniform1i(g_object_id_uniform, BOMB_BODY);
+            DrawVirtualObject("bomb_body");
+
+            glUniform1i(g_object_id_uniform, BOMB_OTHER);
+            DrawVirtualObject("bomb_body");
+            DrawVirtualObject("bomb_other");
+            DrawVirtualObject("bomb_needle");
+            DrawVirtualObject("bomb_foot1");
+            DrawVirtualObject("bomb_foot2");
+        }
+
+        model = Matrix_Identity();
+        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        glUniform1i(g_object_id_uniform, PAINTING);
+        DrawVirtualObject("painting");
         
         char debug_info[500] = {0};
         
@@ -768,7 +891,8 @@ int main(int argc, char* argv[]) {
 
         
         if ( g_ShowInfoText ) {
-            TextRendering_ShowEulerAngles(window, g_AngleX, g_AngleY, g_AngleZ);
+            // TODO: TextRendering_ShowCameraAngle(window, camera?);
+            // TextRendering_ShowEulerAngles(window, g_AngleX, g_AngleY, g_AngleZ);
             TextRendering_ShowProjection(window, g_UsePerspectiveProjection);
             TextRendering_ShowFramesPerSecond(window);
         }
@@ -807,8 +931,6 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-// Função que desenha um objeto armazenado em g_VirtualScene. Veja definição
-// dos objetos na função BuildTrianglesAndAddToVirtualScene().
 void DrawVirtualObject(const char* object_name) {
     // "Ligamos" o VAO. Informamos que queremos utilizar os atributos de
     // vértices apontados pelo VAO criado pela função BuildTrianglesAndAddToVirtualScene(). Veja
@@ -974,7 +1096,7 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel* model) {
 
         size_t last_index = indices.size() - 1;
 
-        SceneObject theobject;
+        Model theobject;
         theobject.name           = model->shapes[shape].name;
         theobject.first_index    = first_index; // Primeiro índice
         theobject.num_indices    = last_index - first_index + 1; // Número de indices
@@ -1012,6 +1134,7 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel* model) {
 
     if ( !texture_coefficients.empty() )
     {
+        log_info("Texture coefficients is not empty!\n");
         GLuint VBO_texture_coefficients_id;
         glGenBuffers(1, &VBO_texture_coefficients_id);
         glBindBuffer(GL_ARRAY_BUFFER, VBO_texture_coefficients_id);
@@ -1170,18 +1293,18 @@ void CursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
         float dy = ypos - g_LastCursorPosY;
     
         // Atualizamos parâmetros da câmera com os deslocamentos
-        g_CameraTheta -= 0.01f*dx;
-        g_CameraPhi   += 0.01f*dy;
+        g_camera.lookat.theta -= 0.01f*dx;
+        g_camera.lookat.phi   += 0.01f*dy;
     
         // Em coordenadas esféricas, o ângulo phi deve ficar entre -pi/2 e +pi/2.
         float phimax = 3.141592f/2;
         float phimin = -phimax;
     
-        if (g_CameraPhi > phimax)
-            g_CameraPhi = phimax;
+        if (g_camera.lookat.phi > phimax)
+            g_camera.lookat.phi = phimax;
     
-        if (g_CameraPhi < phimin)
-            g_CameraPhi = phimin;
+        if (g_camera.lookat.phi < phimin)
+            g_camera.lookat.phi = phimin;
     
         // Atualizamos as variáveis globais para armazenar a posição atual do
         // cursor como sendo a última posição conhecida do cursor.
@@ -1226,7 +1349,7 @@ void CursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     // Atualizamos a distância da câmera para a origem utilizando a
     // movimentação da "rodinha", simulando um ZOOM.
-    g_CameraDistance -= 0.1f*yoffset;
+    g_camera.lookat.dist -= 0.1f*yoffset;
 
     // Uma câmera look-at nunca pode estar exatamente "em cima" do ponto para
     // onde ela está olhando, pois isto gera problemas de divisão por zero na
@@ -1234,8 +1357,8 @@ void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     // nunca pode ser zero. Versões anteriores deste código possuíam este bug,
     // o qual foi detectado pelo aluno Vinicius Fraga (2017/2).
     const float verysmallnumber = std::numeric_limits<float>::epsilon();
-    if (g_CameraDistance < verysmallnumber)
-        g_CameraDistance = verysmallnumber;
+    if (g_camera.lookat.dist < verysmallnumber)
+        g_camera.lookat.dist = verysmallnumber;
 }
 
 void defaultKeyCallback(int key, int scancode, int action, int mod){
@@ -1281,7 +1404,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         .hold  = !(action == GLFW_RELEASE)
     };
 
-    bool shiftHold = g_keyboardState[GLFW_KEY_RIGHT_SHIFT].hold || g_keyboardState[GLFW_KEY_LEFT_SHIFT].hold;
+    // bool shiftHold = g_keyboardState[GLFW_KEY_RIGHT_SHIFT].hold || g_keyboardState[GLFW_KEY_LEFT_SHIFT].hold;
     bool ctrlHold  = g_keyboardState[GLFW_KEY_RIGHT_CONTROL].hold || g_keyboardState[GLFW_KEY_LEFT_CONTROL].hold;
 
     if(ctrlHold && g_keyboardState[GLFW_KEY_Q].press )
@@ -1290,7 +1413,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     log_assert(key >= 0 && key < KEYS_ARR_SIZE, "Key array size is too small. %d. ", key);
 
     /** Note the distinction between PRESS and HOLD. */
-    if(key == g_keyboardState[GLFW_KEY_ESCAPE].press){
+    if(key == g_keyboardState[GLFW_KEY_ESCAPE].press || (ctrlHold && g_keyboardState[GLFW_KEY_2].press)){
         g_typingMode = tm_PLAY;
     }
     if(ctrlHold && g_keyboardState[GLFW_KEY_1].press){
@@ -1306,7 +1429,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
             handleStringCommand(g_stringInput);
         }        
         if( g_typingMode == EDIT_STRING || g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT){
-            handleValueInput(g_stringInput);
+            handleValueInput(g_stringInput, g_globalVariables[g_editVariable]);
         }
         g_shouldLogFrame = true;
         g_stringInput = "";

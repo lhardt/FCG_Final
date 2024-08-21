@@ -6,6 +6,7 @@
 // "shader_vertex.glsl" e "main.cpp".
 in vec4 position_world;
 in vec4 normal;
+in vec2 texcoords;
 
 // Matrizes computadas no código C++ e enviadas para a GPU
 uniform mat4 model;
@@ -13,10 +14,22 @@ uniform mat4 view;
 uniform mat4 projection;
 
 // Identificador que define qual objeto está sendo desenhado no momento
-#define SPHERE 0
-#define BUNNY  1
-#define PLANE  2
+#define SPHERE      0
+#define BUNNY       1
+#define FLOOR       2
+#define BOMB_BODY   3
+#define BOMB_OTHER  4
+#define WALL        5 
+#define PAINTING    6
+
 uniform int object_id;
+
+
+uniform sampler2D bomb_body;
+uniform sampler2D bomb_other;
+uniform sampler2D floor_tile;
+uniform sampler2D wall_tile;
+uniform sampler2D painting;
 
 // O valor de saída ("out") de um Fragment Shader é a cor final do fragmento.
 out vec4 color;
@@ -45,6 +58,10 @@ void main()
     // Vetor que define o sentido da câmera em relação ao ponto atual.
     vec4 v = normalize(camera_position - p);
 
+    float U = 0.0;
+    float V = 0.0;
+
+
     // Vetor que define o sentido da reflexão especular ideal.
     vec4 r = normalize(-l + 2*n*dot(n,l)); // PREENCHA AQUI o vetor de reflexão especular ideal
 
@@ -54,34 +71,84 @@ void main()
     vec3 Ka; // Refletância ambiente
     float q; // Expoente especular para o modelo de iluminação de Phong
 
-    if ( object_id == SPHERE )
-    {
+    if ( object_id == SPHERE ) {
         // PREENCHA AQUI
         // Propriedades espectrais da esfera
         Kd = vec3(0.8,0.4,0.08);
         Ks = vec3(0.0,0.0,0.0);
         Ka = vec3(0.4,0.2,0.04);
         q = 1.0;
-    }
-    else if ( object_id == BUNNY )
-    {
+    } else if ( object_id == BUNNY ) {
         // PREENCHA AQUI
         // Propriedades espectrais do coelho
         Kd = vec3(0.08,0.4,0.8);
         Ks = vec3(0.8,0.8,0.8);
         Ka = vec3(0.04,0.2,0.4);
         q = 32.0;
-    }
-    else if ( object_id == PLANE )
-    {
+    } else if ( object_id == FLOOR ) {
         // Propriedades espectrais do plano
-        Kd = vec3(0.2,0.2,0.2);
-        Ks = vec3(0.3,0.3,0.3);
-        Ka = vec3(0.0,0.0,0.0);
-        q = 20.0;
-    }
-    else // Objeto desconhecido = preto
-    {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(floor_tile, vec2(U,V)).rgb;
+        
+        Ka = Kd0 / 5;
+        Kd = Kd0;
+        Ks = Kd0  + vec3(0.1, 0.1, 0.15);
+
+        q = 10.0;
+
+        // Kd = vec3(0.2,0.2,0.2);
+        // Ks = vec3(0.3,0.3,0.3);
+        // Ka = vec3(0.0,0.0,0.0);
+        // q = 20.0;
+    } else if ( object_id == BOMB_BODY ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(bomb_body, vec2(U,V)).rgb;
+        
+        Ka = Kd0 / 5;
+        Kd = Kd0 / 2;
+        Ks = Kd0  + vec3(0.1, 0.1, 0.15);
+
+        q = 10.0;
+    } else if ( object_id == BOMB_OTHER ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(bomb_other, vec2(U,V)).rgb;
+        
+        Ka = Kd0 / 5;
+        Kd = Kd0 / 2;
+        Ks = Kd0  + vec3(0.2, 0.2, 0.2);
+        q = 10.0;
+
+        //float lambert = max(0,dot(n,l));
+
+        // color.rgb = Kd0 * (lambert + 0.01);
+
+    } else if ( object_id == WALL ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(wall_tile, vec2(U,V)).rgb;
+        
+        Ka = Kd0 / 5;
+        Kd = Kd0 / 2;
+        Ks = Kd0  + vec3(0.2, 0.2, 0.2);
+        q = 10.0;
+    } else if ( object_id == PAINTING ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(painting, vec2(U,V)).rgb;
+        
+        Ka = Kd0 / 5;
+        Kd = Kd0 / 2;
+        Ks = Kd0  + vec3(0.2, 0.2, 0.2);
+        q = 10.0;
+    } else { // Objeto desconhecido = preto
         Kd = vec3(0.0,0.0,0.0);
         Ks = vec3(0.0,0.0,0.0);
         Ka = vec3(0.0,0.0,0.0);
@@ -119,6 +186,7 @@ void main()
 
     // Cor final do fragmento calculada com uma combinação dos termos difuso,
     // especular, e ambiente. Veja slide 129 do documento Aula_17_e_18_Modelos_de_Iluminacao.pdf.
+    //if( object_id != BOMB_BODY && object_id != BOMB_OTHER ) 
     color.rgb = lambert_diffuse_term + ambient_term + phong_specular_term;
 
     // Cor final com correção gamma, considerando monitor sRGB.

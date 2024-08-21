@@ -1,4 +1,5 @@
 #include "matrices.h"
+#include "logger.h"
 
 glm::mat4 Matrix(
     float m00, float m01, float m02, float m03, // LINHA 1
@@ -173,12 +174,11 @@ float dotproduct(glm::vec4 u, glm::vec4 v) {
     float v3 = v.z;
     float v4 = v.w;
 
-    if ( u4 != 0.0f || v4 != 0.0f )
-    {
-        fprintf(stderr, "ERROR: Produto escalar não definido para pontos.\n");
+    if ( u4 != 0.0f || v4 != 0.0f ) {
+        log_error(" [%.2f %.2f %.2f %.2f ] x [%.2f %.2f %.2f %.2f] ", u.x, u.y, u.z, u.w, v.x, v.y, v.z, v.w);
         std::exit(EXIT_FAILURE);
     }
-
+    
     return u1*v1 + u2*v2 + u3*v3;
 }
 
