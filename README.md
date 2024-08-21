@@ -2,19 +2,16 @@
 ### Bob-omb em: dire, dire FCG
 
 O trabalho foi desenvolvido por Léo Hardt e Laura Ramos para a disciplina de fundamentos de computação gráfica da UFRGS. A dupla se dividiu da seguinte forma para a criação do trabalho:
-Léo: gerenciador de shaders, camera look at, 
-Laura: logging, model do bob-omb, textura, camera livre
+Léo: gerenciador de shaders, camera look at, curva de Beziér e colisão
+Laura: logging, model do bob-omb, textura, camera livre.
 
 ### Ferramentas
-
 Não foi feito o uso de ferramentas como ChatGPT, apenas o uso de códigos fornecidos nos laboratórios anteriores da disciplina e tutoriais da internet.
 
 ### Descrição do processo de desenvolvimento
 Model matrix: 
 
 Interação com o usuário: descrição no manual do jogo, feita usando o teclado
-
-
 
 Camera look-at: implementada seguindo o personagem principal.
 Camera livre: implementada quando alterada pelo usuário, se move com os botões de seta.
@@ -33,9 +30,11 @@ Animação de movimento baseado no tempo: esse tópico é utilizado para mover o
 
 ### Imagens
 
+![jogo2](https://github.com/user-attachments/assets/e5262df3-88c6-407b-b164-f9ea1a87ac15)
+
+![jogo1](https://github.com/user-attachments/assets/a258122a-9c02-43d7-aa65-8454f3ab1aa5)
 
 ### Manual de Jogos
-
 As teclas 'A', 'W', 'D' e 'espace' controlam o bob-omb cada uma tendo as seguintes funções:
 A: move para a direita;
 W: move para frente;
@@ -49,6 +48,5 @@ Para trocar o FPS deve-se clicar 'Ctrl+1', escrever targetFPS, escolher o FPS de
 Tanto para alterar a camera quando o FPS é possível sair do comando clicando "Ctrl+2".
 
 ### Compilação e execução
-
 Para compilar basta executar o MakeFile.
 Para executar basta o comando make run.
