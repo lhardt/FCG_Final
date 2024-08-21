@@ -51,8 +51,24 @@
 #include "model.h"
 #include "logger.h"
 #include "registered_variables.h"
+#include "objects.h"
+#include "collisions.h"
 
-#define WINDOW_NAME ("Game!")
+#define WINDOW_NAME ("Dire Dire FCG")
+
+#define SPHERE      0
+#define BUNNY       1
+#define PLANE       2
+#define BOMB_BODY   3
+#define BOMB_OTHER  4
+#define WALL        5
+#define PAINTING    6
+#define FOOTSLAB    7
+#define SHREK1      8
+#define SHREK2      9
+#define BLOCK       10
+#define PAINTING2   11
+
 
 // Declaração de funções utilizadas para pilha de matrizes de modelagem.
 void PushMatrix(glm::mat4 M);
@@ -101,8 +117,8 @@ struct Model {
 // };
 
 enum CameraType {
-    C_LOOKAT,
-    C_FREE
+    C_LOOKAT = 1,
+    C_FREE = 2
 };
 
 struct FreeCamera {
@@ -122,22 +138,169 @@ struct Camera {
     LookatCamera lookat;  
 };
 
-struct Movable {
-    glm::vec4 pos;
-    glm::vec4 vel; // relative to himself
-    glm::vec4 front;
-    float   y_angle;
-    float   scale;
+glm::vec4 makeBezier(glm::vec4 p1, glm::vec4 p2, glm::vec4 p3, glm::vec4 p4, float &input){
+    // 0...1 => move forward
+    // 1...2 => move backward
+    while( input > 2 ) input -= 2;
+    if( input < 0 ) input = 0;
+    
+    float in = input;
+    if( in > 1 ) in = 2 - in;
+    
+    glm::vec4 p5 = p1 * (1-in) + p2 * in ;
+    glm::vec4 p6 = p2 * (1-in) + p3 * in ;
+    glm::vec4 p7 = p3 * (1-in) + p4 * in ;
+    
+    glm::vec4 p8 = p5 * (1-in) + p6 * in ;
+    glm::vec4 p9 = p6 * (1-in) + p7 * in ;
+    
+    glm::vec4 p10= p8 * (1-in) + p9 * in ;
+    
+    return p10;
+}
+
+std::vector<SolidObject> g_objects = {
+    {
+        .m = {
+            .pos = glm::vec4(-50.0f, -5.0f, 0.0f, 1.0f),
+            .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+            .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+            .y_angle = 0.0f,
+            .scale = 1
+        },
+        .size=glm::vec4(5,5,5,1),
+        .model_name = "bomb",
+        .object_id_uniform = -1,
+        .show = true,
+        .show_box = false
+    }, 
+    {
+         .m = {
+            .pos = glm::vec4(-25,10, -110,1),
+            .vel = glm::vec4(0,0,0,0),
+            .front = glm::vec4(0,0,1,0),
+            .y_angle = 0,
+            .scale = 15
+        },
+        .size = glm::vec4(10,10,10,1),
+        .model_name = "block",
+        .object_id_uniform = BLOCK,
+        .show = true,
+        .show_box = false,   
+        .stretch_to_size = true,
+    }, 
+    {
+         .m = {
+            .pos = glm::vec4(15,10, -110,1),
+            .vel = glm::vec4(0,0,0,0),
+            .front = glm::vec4(0,0,1,0),
+            .y_angle = 0,
+            .scale = 15
+        },
+        .size = glm::vec4(10,10,10,1),
+        .model_name = "block",
+        .object_id_uniform = BLOCK,
+        .show = true,
+        .show_box = false,   
+        .stretch_to_size = true,
+    }, 
+    {
+         .m = {
+            .pos = glm::vec4(-13,78,-60,1),
+            .vel = glm::vec4(0,0,0,0),
+            .front = glm::vec4(0,0,1,0),
+            .y_angle = 0,
+            .scale = 15
+        },
+        .size = glm::vec4(30,30,30,1),
+        .model_name = "block",
+        .object_id_uniform = BLOCK,
+        .show = true,
+        .show_box = false,   
+        .stretch_to_size = true,
+    },
+    {
+        .m = {
+            .pos = glm::vec4(0,110,-60,1), // glm::vec4(-20.0f, 2.0f, -20.0f, 1.0f),
+            .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+            .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+            .y_angle = 0.0f,
+            .scale = 0.2
+        },
+        .size=glm::vec4(5,20,5,1),
+        .model_name = "shrek",
+        .object_id_uniform = -1,
+        .show = true,
+        .show_box = false
+    },
+    {
+        .m = {
+            .pos = glm::vec4(-50.0f, 0.0f, 120.71f, 1.0f),
+            .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+            .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+            .y_angle = 0.0f,
+            .scale = 0.2
+        },
+        .size=glm::vec4(100,38,5,1),
+        // .model_name = "wall",
+        .object_id_uniform = -1,
+        .show = false,
+        .show_box = false
+    },
+    {
+        .m = {
+            .pos = glm::vec4(-50.0f, 0.0f, -125.71f, 1.0f),
+            .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+            .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+            .y_angle = 0.0f,
+            .scale = 0.2
+        },
+        .size=glm::vec4(100,38,5,1),
+        // .model_name = "wall",
+        .object_id_uniform = -1,
+        .show = false,
+        .show_box = false
+    },
+    { // bezier block
+         .m = {
+            .pos = glm::vec4(-30,10, 0,1),
+            .vel = glm::vec4(0,0,0,0),
+            .front = glm::vec4(0,0,1,0),
+            .y_angle = 0,
+            .scale = 15
+        },
+        .size = glm::vec4(5,5, 5,1),
+        .model_name = "block",
+        .object_id_uniform = BLOCK,
+        .show = true,
+        .show_box = false,   
+        .stretch_to_size = true,
+    },
+    { // high platform
+         .m = {
+            .pos = glm::vec4(-10,70,-10,1),
+            .vel = glm::vec4(0,0,0,0),
+            .front = glm::vec4(0,0,1,0),
+            .y_angle = 0,
+            .scale = 15
+        },
+        .size = glm::vec4(20, 15, 80,1),
+        .model_name = "block",
+        .object_id_uniform = BLOCK,
+        .show = true,
+        .show_box = false,   
+        .stretch_to_size = true,
+    },
+
 };
 
-Movable g_hero = {
-    .pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    .vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-    .front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
-    .y_angle = 0.0f,
-    .scale = 1
-};
+SolidObject* g_hero = & g_objects[0]; 
+SolidObject* g_testSolid = & g_objects[1];
+SolidObject* g_shrek = & g_objects[2];
+SolidObject* g_smallBlock = & g_objects[7];
 
+
+float g_feetAnimationStep = 0;
 
 glm::vec4 unit_vector_towards(float phi, float theta){
     // PHI in relation to Y axis, starting with the horizontal;
@@ -152,9 +315,9 @@ glm::vec4 unit_vector_towards(float phi, float theta){
 Camera g_camera = {
     .type = C_LOOKAT,
     .free = {
-        .pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-        .phi = -0.5,
-        .theta = 0.5
+        .pos = glm::vec4(0.0f, 80.0f, -120.0f, 1.0f),
+        .phi = -0.6,
+        .theta = 0.
     },
     .lookat = {
         .dist = 41,
@@ -166,7 +329,6 @@ Camera g_camera = {
 glm::mat4 computeViewMatrix( Camera & camera ){ 
     log_info("Camemra initial [p  %.2f  t  %.2f]", g_camera.lookat.phi, g_camera.lookat.theta);
 
-
     glm::vec4 vec_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
     glm::vec4 vec_front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
     glm::vec4 camera_pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -175,26 +337,24 @@ glm::mat4 computeViewMatrix( Camera & camera ){
         /***/
         
         LookatCamera& c = camera.lookat;
-        glm::vec4 camera_dir_vec =  Matrix_Rotate_Y(g_hero.y_angle) * unit_vector_towards(-g_camera.lookat.phi,- g_camera.lookat.theta); 
+        glm::vec4 camera_dir_vec =  Matrix_Rotate_Y(g_hero->m.y_angle) * unit_vector_towards(-g_camera.lookat.phi,- g_camera.lookat.theta); 
         
         log_info("[%.2f %.2f %.2f %.2f]", camera_dir_vec.x, camera_dir_vec.y, camera_dir_vec.z, camera_dir_vec.w);
         
         vec_front = camera_dir_vec / norm(camera_dir_vec); //Always look at him from behind ; unit_vector_towards(c.phi, c.theta);
-        camera_pos = g_hero.pos - vec_front*c.dist;
+        camera_pos = g_hero->m.pos - vec_front*c.dist;
     } else {
         FreeCamera& c = camera.free;
         
         vec_front = unit_vector_towards(c.phi, c.theta);
-        glm::vec4 vec_right = crossproduct(vec_front, vec_up); 
-        glm::vec4 vec_left = -vec_right;
+        // glm::vec4 vec_right = crossproduct(vec_front, vec_up); 
+        // glm::vec4 vec_left = -vec_right;
 
         camera_pos = c.pos; // Ponto "c", centro da câmera
     }
     log_info("Camemra final [p  %.2f  t  %.2f]", g_camera.lookat.phi, g_camera.lookat.theta);
     return Matrix_Camera_View(camera_pos, vec_front, vec_up);
 }
-
-
 
 struct KeyState {
     bool press;
@@ -217,11 +377,6 @@ std::stack<glm::mat4>  g_MatrixStack;
 // Razão de proporção da janela (largura/altura). Veja função FramebufferSizeCallback().
 float g_ScreenRatio = 1.0f;
 
-// Ângulos de Euler que controlam a rotação de um dos cubos da cena virtual
-float g_AngleX = 0.0f;
-float g_AngleY = 0.0f;
-float g_AngleZ = 0.0f;
-
 GLint g_model_uniform;
 GLint g_view_uniform;
 GLint g_projection_uniform;
@@ -233,16 +388,24 @@ bool g_LeftMouseButtonPressed = false;
 bool g_RightMouseButtonPressed = false; // Análogo para botão direito do mouse
 bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mouse
 
+float g_bezierTime = 0;
 
 class TextureManager {
 public: 
     std::map<std::string, GLuint> texture_ids;
+    std::map<std::string, std::string> filenames;
     
     void loadTexture(std::string name, std::string refname = "");
+    void reloadAll();
 };
 
 TextureManager g_textureManager;
 
+void TextureManager::reloadAll(){
+    for( auto & [ refname,  name] : filenames ){
+        loadTexture(name, refname);
+    }
+}
 
 void TextureManager::loadTexture(std::string name, std::string refname){
     if( refname == "" ) refname = name;
@@ -284,6 +447,8 @@ void TextureManager::loadTexture(std::string name, std::string refname){
     stbi_image_free(data);
     
     texture_ids[ refname ] = textureunit;
+    filenames[ refname ] = name;
+    
 }
 
 class ShaderManager {
@@ -320,6 +485,10 @@ void   ShaderManager::reloadAll(){
 GLuint ShaderManager::getProgramId(std::string program_name){
     log_assert(gpu_program_ids.find(program_name) != gpu_program_ids.end(), "Calling an unregistered program? [%s]", program_name.c_str());
     GLuint program_id = gpu_program_ids[program_name];
+    log_info("Using GL Program %u ", program_id);
+    
+    glUseProgram(0);
+    glUseProgram(program_id);
 
     g_model_uniform      = glGetUniformLocation(program_id, "model"); // Variável da matriz "model"
     g_view_uniform       = glGetUniformLocation(program_id, "view"); // Variável da matriz "view" em shader_vertex.glsl
@@ -374,6 +543,7 @@ bool   ShaderManager::loadShader(std::string filename, GLuint shader_id){
     std::string log( &log_buffer[0] );
     if(!compilation_succeeded){
         log_severe("OpenGL compilation of shader [%s] FAILED. See log below: \n%s", filename.c_str(), log.c_str());
+        std::exit(EXIT_FAILURE);
     } else {
         log_info("OpenGL compilation of shader [%s] successful! See logs: %s\n", filename.c_str(), log.c_str());
     }
@@ -448,53 +618,243 @@ bool g_UsePerspectiveProjection = true;
 bool g_ShowInfoText = true;
 
 // bool g_showBunny = false;
-bool g_showBomb = true;
-bool g_showSphere = false;
+bool g_showFloor = true;
 
 
 float g_baseSpeed = 40.0f;
 float g_baseSideSpeed = 8.0f;
 float g_baseAngleSpeed = 2.0f; // in radians per second?
+float g_gravity = -100.0;
+float g_jumpForce = 1000;
 
-void setSpeedByKeyboard(Movable& m, float delta_time){
+void moveCameraByKeyboard(float delta_time){
     float frontSpeed = 0.0f;
     float sideSpeed = 0.0f;
     
+    float speedMultiplier = 100;
+
+    if(g_keyboardState[ GLFW_KEY_UP ].hold )    frontSpeed += 1;
+    if(g_keyboardState[ GLFW_KEY_DOWN ].hold )  frontSpeed -= 1;
+    if(g_keyboardState[ GLFW_KEY_LEFT ].hold )  sideSpeed -= 1;
+    if(g_keyboardState[ GLFW_KEY_RIGHT ].hold ) sideSpeed += 1;
+
+    glm::vec4 vec_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    glm::vec4 vec_front = unit_vector_towards(g_camera.free.phi, g_camera.free.theta);
+    glm::vec4 vec_right = crossproduct(vec_front, vec_up); 
+    // glm::vec4 vec_left = -vec_right;
+    
+    glm::vec4 vec_move_front = vec_front * frontSpeed * delta_time * speedMultiplier;
+    glm::vec4 vec_move_hor = vec_right * sideSpeed * delta_time * speedMultiplier;
+    log_info("vecinfo %.2f %.2f %.2f %.2f", vec_front[0], vec_front[1], vec_front[2], vec_front[3]);
+    log_info("vecinfo %.2f %.2f %.2f %.2f", vec_front[0], frontSpeed, delta_time, speedMultiplier);
+
+    g_camera.free.pos += vec_move_front + vec_move_hor;
+}
+
+void setSpeedByKeyboard(Movable& m, float delta_time){
+    float LEG_MOVEMENT_SPEED = 1.8f;
+    float frontSpeed = 0.0f;
+    float sideSpeed = 0.0f;
+    float verticalSpeed = 0.0f;
     
     if(g_keyboardState[ GLFW_KEY_W ].hold )  frontSpeed += 1;
     if(g_keyboardState[ GLFW_KEY_S ].hold )  frontSpeed -= 1;
     if(g_keyboardState[ GLFW_KEY_A ].hold )   sideSpeed -= 1;
     if(g_keyboardState[ GLFW_KEY_D ].hold )   sideSpeed += 1;
+    if(g_keyboardState[ GLFW_KEY_SPACE ].press )   verticalSpeed += 1;
 
-    log_debug("Object speed %f %f ", m.vel[0], m.vel[1]);
     m.vel[ 2 ] = std::max(frontSpeed * g_baseSpeed,  std::abs(sideSpeed) * g_baseSideSpeed);
-    //m.vel[ 1 ] =   0 ; // no vertical speed from keyboard
-    m.vel[ 0 ] = 0; 
+    m.vel[ 1 ] += verticalSpeed * delta_time * g_jumpForce;
+
+    if( m.pos[ 1 ] > 0.01 ) {
+        m.vel[1] += g_gravity * delta_time;
+        log_info("Gravity. Vel was %.2f and now is %.2f", m.vel[1], m.vel[1] - g_gravity * delta_time);
+    } else {
+        m.vel[1] = std::max(0.0f, m.vel[1]);
+        m.pos[1] = 0.;
+    }
+    
+    
+    log_debug("Object speed %.2f %.2f %.2f ", m.vel[0], m.vel[1], m.vel[2]);
 
     float angleSpeed = -1 *  sideSpeed *  g_baseAngleSpeed * delta_time;
     log_info("Angle speed is %f %f %f = %f ", sideSpeed, g_baseAngleSpeed, delta_time, angleSpeed);
 
     glm::vec4 newfront = m.front;
     m.y_angle += angleSpeed;
-//    newfront[0]
+
     newfront[0] =  m.front[2] * sin(angleSpeed) + m.front[0] * cos(angleSpeed);
     newfront[1] = 0; // It helps with the camera calculation if 'front' is completely horizontal.
     newfront[2] =  m.front[2] * cos(angleSpeed) - m.front[0] * sin(angleSpeed);
     
     m.front = newfront;
+    
+    // feet step animation based on delta time
+    if( frontSpeed > 0 ) g_feetAnimationStep += delta_time * LEG_MOVEMENT_SPEED;
+    while(g_feetAnimationStep > 1) g_feetAnimationStep -= 1;
 }
 
-void moveObject(Movable & m, float delta_time){    
+float getFeetAngle(){
+    float LEGS_SPREAD_CONST = 0.333f; // only allow angles btwn. -X rad and X rad
+    // feet animation -- at 0   the feet are together down -- agle 0
+    //                   at 0.5 the feet are spread: one at angle  MAX and other -MAX
+    //                   at 1   they are together again
+   
+    // sin(x) is zero both in 0 and in 2pi, and wobbles btwn positive and negative in the path.
+    float angleStep = sin(g_feetAnimationStep * 2 * 3.141598f);  
+   
+    return angleStep * LEGS_SPREAD_CONST; // allow negative values for feet to switch places
+}
+
+void drawSolid(SolidObject & s ){
+    if( s.show_box ) {
+        glm::vec3 half_size = s.size * 0.5f;
+        glm::mat4 model
+            = Matrix_Translate(s.m.pos[0] + half_size[0],s.m.pos[1] + half_size[1],s.m.pos[2] + half_size[2])
+            * Matrix_Scale(half_size[0], half_size[1], half_size[2])
+            * Matrix_Rotate_Y(s.m.y_angle);
+
+        log_info("Will show box of [%s]", s.model_name.c_str());
+        
+        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        glUniform1i(g_object_id_uniform, 2);
+        DrawVirtualObject("block");
+    }
+    if( s.show ) {
+        glm::vec3 half_size = s.size * 0.5f;
+        glm::vec3 size_scale = s.size * 0.5f / s.m.scale;
+        glm::mat4 model
+            = Matrix_Translate(s.m.pos[0] + half_size[0],s.m.pos[1] + half_size[1],s.m.pos[2] + half_size[2])
+            * (s.stretch_to_size ?  Matrix_Scale(size_scale[0],size_scale[1],size_scale[2]) : Matrix_Scale(s.m.scale,s.m.scale,s.m.scale))
+            * Matrix_Scale(s.m.scale,s.m.scale,s.m.scale)
+            * Matrix_Rotate_Y(s.m.y_angle);
+            
+        log_info("Will show solid [%s]", s.model_name.c_str());
+        
+        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        glUniform1i(g_object_id_uniform, 2);
+
+        if( s.model_name == "shrek" ) {
+            glm::mat4 model
+                = Matrix_Translate(s.m.pos[0] + half_size[0],s.m.pos[1] + half_size[1]  - 10,s.m.pos[2] + half_size[2])
+                * Matrix_Scale(s.m.scale,s.m.scale,s.m.scale)
+                * Matrix_Rotate_Y(s.m.y_angle)
+                * Matrix_Rotate_Z( getFeetAngle() * 0.5);
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+
+            glUniform1i(g_object_id_uniform, SHREK2);
+            DrawVirtualObject("shrek2");
+            glUniform1i(g_object_id_uniform, SHREK2);
+            DrawVirtualObject("shrek3");
+            glUniform1i(g_object_id_uniform, SHREK1);
+            DrawVirtualObject("shrek4");
+            glUniform1i(g_object_id_uniform, SHREK1);
+            DrawVirtualObject("shrek5");            
+        } else if ( s.model_name == "bomb" ){
+            model = Matrix_Translate(s.m.pos[0],s.m.pos[1],s.m.pos[2])
+                * Matrix_Scale(s.m.scale, s.m.scale, s.m.scale)
+                * Matrix_Rotate_Y(s.m.y_angle)
+                * Matrix_Rotate_Z( getFeetAngle() * 0.2);
+
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+
+            glUniform1i(g_object_id_uniform, BOMB_BODY);
+            DrawVirtualObject("bomb_body");
+
+            glUniform1i(g_object_id_uniform, BOMB_OTHER);
+            DrawVirtualObject("bomb_other");
+            DrawVirtualObject("bomb_needle");
+            
+            model = Matrix_Translate(s.m.pos[0],s.m.pos[1],s.m.pos[2])
+                * Matrix_Scale(s.m.scale, s.m.scale, s.m.scale)
+                * Matrix_Rotate_Y(s.m.y_angle)
+                * Matrix_Translate(0.0f, 4.0f, 0.0f)
+                * Matrix_Rotate_X( getFeetAngle() * 2 )
+                * Matrix_Translate(0.0f, -4.0f, 0.0f);
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            DrawVirtualObject("bomb_foot1");
+            model = Matrix_Translate(s.m.pos[0],s.m.pos[1],s.m.pos[2])
+                * Matrix_Scale(s.m.scale, s.m.scale, s.m.scale)
+                * Matrix_Rotate_Y(s.m.y_angle)
+                * Matrix_Translate(0.0f, 4.0f, 0.0f)
+                * Matrix_Rotate_X( -getFeetAngle() * 2 )
+                * Matrix_Translate(0.0f, -4.0f, 0.0f);
+            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            DrawVirtualObject("bomb_foot2");
+        } else {
+            glUniform1i(g_object_id_uniform, s.object_id_uniform);
+            DrawVirtualObject( s.model_name.c_str() );
+        }
+
+
+    }
+}
+
+glm::vec4 tryMoveTo(SolidObject & s, float delta_time, glm::vec4 new_pos, float throwback){
+    Movable & m = s.m;
+    glm::vec4 old_pos = s.m.pos; 
+    s.m.pos = new_pos; 
+    for( int i = 1; i < g_objects.size(); ++i){
+        SolidObject other = g_objects[i];
+        bool this_collides = checkCollision( s, other );
+        if( this_collides ){
+            // Throwback if collision is detected.
+            new_pos = m.pos;
+            glm::vec4 dist = old_pos - new_pos;
+            new_pos = new_pos +  dist * throwback;
+        }
+    }
+    if( s.m.pos[1] < 0 ) s.m.pos[1] = 0;
+    return s.m.pos = new_pos;
+}
+
+void moveObject(SolidObject & s, float delta_time){    
+    Movable & m = s.m;
+    
     glm::vec4 vec_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
     glm::vec4 vec_right = crossproduct(m.front, vec_up); 
-    glm::vec4 vec_left = -vec_right;
+    // glm::vec4 vec_left = -vec_right;
 
-    m.pos +=  m.front   *  m.vel[2] * delta_time;
-    m.pos +=  vec_up    *  m.vel[1] * delta_time;
-    m.pos +=  vec_right *  m.vel[0] * delta_time;
+    glm::vec4 new_pos = m.pos;
+    new_pos +=  m.front   * m.vel[2] * delta_time;
+    new_pos +=  vec_up    * m.vel[1] * delta_time;
+    new_pos +=  vec_right * m.vel[0] * delta_time;
+    
+    { /* If can't move up or down,  */
+        float old_y = m.pos[1];
+        
+        glm::vec4 new_pos_only_y = m.pos;
+        new_pos_only_y[1] = new_pos[1];
+        tryMoveTo(s, delta_time, new_pos_only_y, 1);
+
+        float new_y = m.pos[1];
+        bool y_changed = (std::abs(new_y - old_y) > 1e-6); 
+        if( !y_changed ) {
+            s.m.vel[1] = 0;
+        }
+    }
+    {
+        glm::vec4 new_pos_only_z = m.pos;
+        new_pos_only_z[2] = new_pos[2];
+        tryMoveTo(s, delta_time, new_pos_only_z, 1.3);
+    }
+    {
+        glm::vec4 new_pos_only_x = m.pos;
+        new_pos_only_x[0] = new_pos[0];
+        tryMoveTo(s, delta_time, new_pos_only_x, 1.3);
+    }
 }
 
 void handleStringCommand(std::string command){
+    if(command == "freeCamera"){
+        *(g_globalVariables["cameraType"].ir_value) = 2;
+        break;
+    }
+    if(command == "lookatCamera"){
+        *(g_globalVariables["cameraType"].ir_value) = 1;
+        break;
+    }
+    
     if(command == "exit"){
         log_info("Processing command 'exit', shutting down.");
         std::exit(0);
@@ -512,8 +872,16 @@ void handleStringCommand(std::string command){
 }
 
 
+bool test1 = false;
+bool test2 = false;
+bool test3 = false;
+bool test4 = false;
+bool test5 = false;
+
 bool initGlobalVariables(){
     // Camera
+    log_assert( sizeof(g_camera.type) == sizeof(int) , "Should not use enum as int-sized!");
+    g_globalVariables["cameraType"] = makeIntRef((int*)(& g_camera.type) );
     g_globalVariables["cameraDist"] = makeFloatRef(& g_camera.lookat.dist );
     g_globalVariables["cameraTheta"] = makeFloatRef(& g_camera.lookat.theta );
     g_globalVariables["cameraPhi"] = makeFloatRef(& g_camera.lookat.phi );
@@ -523,15 +891,35 @@ bool initGlobalVariables(){
     g_globalVariables["targetFPS"] = makeFloatRef(& g_targetFPS );
     g_globalVariables["fixedFPS"] = makeBoolRef(& g_fixedFPS );
     // 
-    g_globalVariables["bombX"] = makeFloatRef(& g_hero.pos[0] );
-    g_globalVariables["bombY"] = makeFloatRef(& g_hero.pos[1] );
-    g_globalVariables["bombZ"] = makeFloatRef(& g_hero.pos[2] );
-    g_globalVariables["bombScale"] = makeFloatRef(& g_hero.scale );
+    g_globalVariables["bombX"] = makeFloatRef(& g_hero->m.pos[0] );
+    g_globalVariables["bombY"] = makeFloatRef(& g_hero->m.pos[1] );
+    g_globalVariables["bombZ"] = makeFloatRef(& g_hero->m.pos[2] );
+    g_globalVariables["bombScale"] = makeFloatRef(& g_hero->m.scale );
     // g_globalVariables["showBunny"] = makeBoolRef(& g_showBunny );
-    g_globalVariables["showBomb"] = makeBoolRef(& g_showBomb );
-    g_globalVariables["showSphere"] = makeBoolRef(& g_showSphere );
+    g_globalVariables["showBomb"] = makeBoolRef(& g_hero->show );
+    g_globalVariables["showBombBox"] = makeBoolRef(& g_hero->show_box );
+    g_globalVariables["showShrek"] = makeBoolRef(& g_shrek->show );
+    g_globalVariables["showShrekBox"] = makeBoolRef(& g_shrek->show_box );
+    g_globalVariables["showTestBox"] = makeBoolRef(& g_testSolid->show_box );
     g_globalVariables["baseSpeed"] = makeFloatRef(& g_baseSpeed);    
     g_globalVariables["baseASpeed"] = makeFloatRef(& g_baseAngleSpeed);
+    
+    g_globalVariables["t1"] = makeBoolRef(& test1);
+    g_globalVariables["t2"] = makeBoolRef(& test2); // f
+    g_globalVariables["t3"] = makeBoolRef(& test3); // n 
+    g_globalVariables["t4"] = makeBoolRef(& test4); // y /
+    g_globalVariables["t5"] = makeBoolRef(& test5);
+
+    g_globalVariables["sx"] = makeFloatRef(& g_testSolid->m.pos[0]);
+    g_globalVariables["sy"] = makeFloatRef(& g_testSolid->m.pos[1]);
+    g_globalVariables["sz"] = makeFloatRef(& g_testSolid->m.pos[2]);
+
+    g_globalVariables["sw"] = makeFloatRef(& g_testSolid->size[0]);
+    g_globalVariables["sh"] = makeFloatRef(& g_testSolid->size[1]);
+    g_globalVariables["sd"] = makeFloatRef(& g_testSolid->size[2]);
+    
+    g_globalVariables["jumpForce"] = makeFloatRef(& g_jumpForce);
+    g_globalVariables["gravity"] = makeFloatRef(& g_gravity);
     return true;
 }
 
@@ -688,13 +1076,22 @@ int main(int argc, char* argv[]) {
         "../data/floor.obj",
         "../data/bobomb.obj",
         "../data/painting.obj",
+        "../data/footslab.obj",
+        "../data/wall.obj",
+        "../data/Shrek.obj",
+        "../data/block.obj",
     });
     
     g_textureManager.loadTexture("bomb_other"); // TextureImage1
     g_textureManager.loadTexture("bomb_body");  // TextureImage0
     g_textureManager.loadTexture("floor_tile");
     g_textureManager.loadTexture("painting");
-    // g_textureManager.loadTexture("wall_tile2", "wall_tile");
+    g_textureManager.loadTexture("painting2");
+    g_textureManager.loadTexture("footslab");
+    g_textureManager.loadTexture("wall_tile4", "wall_tile");
+    g_textureManager.loadTexture("shrek1");
+    g_textureManager.loadTexture("shrek2");
+    g_textureManager.loadTexture("block");
     
     TextRendering_Init();
 
@@ -726,7 +1123,6 @@ int main(int argc, char* argv[]) {
 
         log_info("Typing mode is currently %s.", typingModeToStr(g_typingMode).c_str());
                 
-        clearKeyboardState();
         
         //////////////////////////////////////////////////////////////////////
         // Physics
@@ -740,50 +1136,31 @@ int main(int argc, char* argv[]) {
         log_info("Physics Delta Time is %f ", delta_time); 
         
         if( g_typingMode == tm_PLAY ){
-            setSpeedByKeyboard(g_hero, delta_time);            
+            setSpeedByKeyboard(g_hero->m, delta_time);            
+            moveCameraByKeyboard(delta_time);
         }
-        moveObject(g_hero, delta_time);
+        moveObject(*g_hero, delta_time);
+        
+        g_bezierTime += 0.3 *  delta_time;
+        g_smallBlock->m.pos = makeBezier( 
+                    glm::vec4( -80, 0, -60, 1),
+                    glm::vec4( -30, 0, -110, 1), 
+                    glm::vec4( 30, 0, -110, 1) ,
+                    glm::vec4( 80, 0,  -60, 1), g_bezierTime);
         
         last_delta_sample = current_clock;
         //////////////////////////////////////////////////////////////////////
         // Rendering 
 
 
-        //           R     G     B     A
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        //           R     G     B     A #91B6D4
+        glClearColor( 0x91/256.0f, 0xB6/256.0f, 0xD4/256.0f, 1.0f);
 
         // "Pintamos" todos os pixels do framebuffer com a cor definida acima,
         // e também resetamos todos os pixels do Z-buffer (depth buffer).
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
-        // Pedimos para a GPU utilizar o programa de GPU criado acima (contendo
-        // os shaders de vértice e fragmentos).
-        glUseProgram( g_shaderManager.getProgramId("main") );
-        log_info("Using program %d ", g_shaderManager.getProgramId("main"));
-        // Computamos a posição da câmera utilizando coordenadas esféricas.  As
-        // variáveis g_CameraDistance, g_CameraPhi, e g_CameraTheta são
-        // controladas pelo mouse do usuário. Veja as funções CursorPosCallback()
-        // e ScrollCallback().
-
         glm::mat4 view_matrix = computeViewMatrix( g_camera );
-        // float r = g_camera.;
-        // float y = r*sin(g_CameraPhi);
-        // float z = r*cos(g_CameraPhi)*cos(g_CameraTheta);
-        // float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
-
-        // Abaixo definimos as varáveis que efetivamente definem a câmera virtual.
-        // Veja slides 195-227 e 229-234 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        // glm::vec4 camera_position_c  = glm::vec4(x,y,z,1.0f); // Ponto "c", centro da câmera
-        // glm::vec4 camera_lookat_l    = glm::vec4(0.0f,0.0f,0.0f,1.0f); // Ponto "l", para onde a câmera (look-at) estará sempre olhando
-        // glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
-        // glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
-
-        // Computamos a matriz "View" utilizando os parâmetros da câmera para
-        // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        // glm::mat4 view = Matrix_Camera_View(camera_position_c, camera_view_vector, camera_up_vector);
-
-        // Agora computamos a matriz de Projeção.
         glm::mat4 projection;
 
         // Note que, no sistema de coordenadas da câmera, os planos near e far
@@ -809,6 +1186,8 @@ int main(int argc, char* argv[]) {
             projection = Matrix_Orthographic(l, r, b, t, nearplane, farplane);
         }
 
+        glUseProgram( g_shaderManager.getProgramId("main") );
+
         glm::mat4 model = Matrix_Identity(); // Transformação identidade de modelagem
 
         // Enviamos as matrizes "view" e "projection" para a placa de vídeo
@@ -816,27 +1195,28 @@ int main(int argc, char* argv[]) {
         // efetivamente aplicadas em todos os pontos.
         glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view_matrix));
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
-
-        #define SPHERE      0
-        #define BUNNY       1
-        #define PLANE       2
-        #define BOMB_BODY   3
-        #define BOMB_OTHER  4
-        #define WALL        5
-        #define PAINTING    6
-
-        // Desenhamos o modelo da esfera
-        if( g_showSphere ) {
-            model = Matrix_Translate(-1.0f,0.0f,0.0f);
-            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-            glUniform1i(g_object_id_uniform, SPHERE);
-            DrawVirtualObject("the_sphere");
-        } 
+    
+        for( SolidObject & obj : g_objects ){
+            drawSolid(obj);
+        }
+        // drawSolid(g_testSolid);
+        // drawSolid(g_hero);
+        // drawSolid(g_shrek);
 
         model = Matrix_Identity();
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, PLANE);
-        DrawVirtualObject("the_plane");
+
+        if( g_showFloor ){
+            glUniform1i(g_object_id_uniform, PLANE);
+            DrawVirtualObject("floor");            
+        }
+
+        glUniform1i(g_object_id_uniform, FOOTSLAB);
+        DrawVirtualObject("footslab");
+
+
+        glUniform1i(g_object_id_uniform, WALL);
+        DrawVirtualObject("wall");
 
         // if( g_showBunny ){
         //     // Desenhamos o modelo do coelho
@@ -849,27 +1229,53 @@ int main(int argc, char* argv[]) {
         //     DrawVirtualObject("the_bunny");
         // }
         
-        if( g_showBomb ){
-            model = Matrix_Translate(g_hero.pos[0],g_hero.pos[1],g_hero.pos[2])
-                * Matrix_Scale(g_hero.scale, g_hero.scale, g_hero.scale)
-                * Matrix_Rotate_Y(g_hero.y_angle);
+        // if( g_showBomb ){
+            // model = Matrix_Translate(g_hero.m.pos[0],g_hero.m.pos[1],g_hero.m.pos[2])
+            //     * Matrix_Scale(g_hero.scale, g_hero.scale, g_hero.scale)
+            //     * Matrix_Rotate_Y(g_hero.y_angle);
 
-            glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            // glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
 
-            glUniform1i(g_object_id_uniform, BOMB_BODY);
-            DrawVirtualObject("bomb_body");
+            // glUniform1i(g_object_id_uniform, BOMB_BODY);
+            // DrawVirtualObject("bomb_body");
 
-            glUniform1i(g_object_id_uniform, BOMB_OTHER);
-            DrawVirtualObject("bomb_body");
-            DrawVirtualObject("bomb_other");
-            DrawVirtualObject("bomb_needle");
-            DrawVirtualObject("bomb_foot1");
-            DrawVirtualObject("bomb_foot2");
-        }
+            // glUniform1i(g_object_id_uniform, BOMB_OTHER);
+            // DrawVirtualObject("bomb_other");
+            // DrawVirtualObject("bomb_needle");
+            
+            // model = Matrix_Translate(g_hero.pos[0],g_hero.pos[1],g_hero.pos[2])
+            //     * Matrix_Scale(g_hero.scale, g_hero.scale, g_hero.scale)
+            //     * Matrix_Rotate_Y(g_hero.y_angle)
+            //     * Matrix_Translate(0.0f, 4.0f, 0.0f)
+            //     * Matrix_Rotate_X( getFeetAngle() * 2 )
+            //     * Matrix_Translate(0.0f, -4.0f, 0.0f);
+            // glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            // DrawVirtualObject("bomb_foot1");
+            // model = Matrix_Translate(g_hero.pos[0],g_hero.pos[1],g_hero.pos[2])
+            //     * Matrix_Scale(g_hero.scale, g_hero.scale, g_hero.scale)
+            //     * Matrix_Rotate_Y(g_hero.y_angle)
+            //     * Matrix_Translate(0.0f, 4.0f, 0.0f)
+            //     * Matrix_Rotate_X( -getFeetAngle() * 2 )
+            //     * Matrix_Translate(0.0f, -4.0f, 0.0f);
+            // glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+            // DrawVirtualObject("bomb_foot2");
+        // }
 
-        model = Matrix_Identity();
+        model = Matrix_Translate(-20.0f, 0.0f, 120.f)
+              * Matrix_Rotate_Y( 3.141598 );
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
         glUniform1i(g_object_id_uniform, PAINTING);
+        DrawVirtualObject("painting");
+
+        model = Matrix_Translate(+20.0f, 0.0f, 120.f)
+              * Matrix_Rotate_Y( 3.141598 );
+        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        glUniform1i(g_object_id_uniform, PAINTING);
+        DrawVirtualObject("painting");
+
+        model = Matrix_Translate( 0.0f, 0.0f, -120.f) ;
+        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
+        glUniform1i(g_object_id_uniform, PAINTING2);
         DrawVirtualObject("painting");
         
         char debug_info[500] = {0};
@@ -882,7 +1288,7 @@ int main(int argc, char* argv[]) {
         if( g_typingMode == tm_WRITE) {
             snprintf(debug_info, 499, "> %s", g_stringInput.c_str());
         }
-        if( g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT || g_typingMode == EDIT_STRING ){
+        if( g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT || g_typingMode == EDIT_STRING || g_typingMode == EDIT_INT){
             snprintf(debug_info, 499, "%s %s = %s", typingModeToStr(g_typingMode).c_str(), g_editVariable.c_str(), g_stringInput.c_str());
         }
 
@@ -904,10 +1310,7 @@ int main(int argc, char* argv[]) {
         // Veja o link: https://en.wikipedia.org/w/index.php?title=Multiple_buffering&oldid=793452829#Double_buffering_in_computer_graphics
         glfwSwapBuffers(window);
 
-        // Verificamos com o sistema operacional se houve alguma interação do
-        // usuário (teclado, mouse, ...). Caso positivo, as funções de callback
-        // definidas anteriormente usando glfwSet*Callback() serão chamadas
-        // pela biblioteca GLFW.
+        clearKeyboardState(); // Valid until next frame's polling.
         glfwPollEvents();
 
         double currentClock = glfwGetTime();
@@ -932,6 +1335,12 @@ int main(int argc, char* argv[]) {
 }
 
 void DrawVirtualObject(const char* object_name) {
+    
+    if(g_VirtualScene.find(object_name) == g_VirtualScene.end()){
+        log_error("Could not find object [%s] to draw!", object_name);
+        return;
+    }
+    
     // "Ligamos" o VAO. Informamos que queremos utilizar os atributos de
     // vértices apontados pelo VAO criado pela função BuildTrianglesAndAddToVirtualScene(). Veja
     // comentários detalhados dentro da definição de BuildTrianglesAndAddToVirtualScene().
@@ -1193,6 +1602,7 @@ GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id) {
         std::string log( &log_buffer[0] );
 
         log_severe("OpenGL linkage of program [%d] FAILED. See log below: \n%s", program_id, log.c_str());
+        std::exit(EXIT_FAILURE);
     }
     // Os "Shader Objects" podem ser marcados para deleção após serem linkados 
     // glDeleteShader(vertex_shader_id);
@@ -1293,18 +1703,20 @@ void CursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
         float dy = ypos - g_LastCursorPosY;
     
         // Atualizamos parâmetros da câmera com os deslocamentos
-        g_camera.lookat.theta -= 0.01f*dx;
-        g_camera.lookat.phi   += 0.01f*dy;
+        float & theta = g_camera.type == C_LOOKAT ? g_camera.lookat.theta : g_camera.free.theta; 
+        float &  phi  = g_camera.type == C_LOOKAT ? g_camera.lookat.phi   : g_camera.free.phi; 
+        theta -= 0.01f*dx;
+        phi   += 0.01f*dy;
     
         // Em coordenadas esféricas, o ângulo phi deve ficar entre -pi/2 e +pi/2.
         float phimax = 3.141592f/2;
         float phimin = -phimax;
     
-        if (g_camera.lookat.phi > phimax)
-            g_camera.lookat.phi = phimax;
+        if (phi > phimax)
+            phi = phimax;
     
-        if (g_camera.lookat.phi < phimin)
-            g_camera.lookat.phi = phimin;
+        if (phi < phimin)
+            phi = phimin;
     
         // Atualizamos as variáveis globais para armazenar a posição atual do
         // cursor como sendo a última posição conhecida do cursor.
@@ -1381,6 +1793,12 @@ void defaultKeyCallback(int key, int scancode, int action, int mod){
         g_shaderManager.reloadAll();
         log_info("Reloaded all shaders.");
     }
+
+    if (key == GLFW_KEY_T && action == GLFW_PRESS) {
+        //readFilesAndAddObjectsToScene({"block.obj"});
+        // g_textureManager.reloadAll();
+        // log_info("Reloaded all shaders.");
+    }
     
     if (key == GLFW_KEY_P && action == GLFW_PRESS){
         g_shouldLogFrame = true;
@@ -1392,6 +1810,11 @@ void defaultKeyCallback(int key, int scancode, int action, int mod){
         ++g_experimentalState;
         log_info("Next experimental state. [%d]",g_experimentalState);
     }    
+    if(key == GLFW_KEY_R && action == GLFW_PRESS){
+        g_hero->m.pos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        g_hero->m.vel = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        g_hero->m.front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+    }
 }
 
 // Definição da função que será chamada sempre que o usuário pressionar alguma
@@ -1400,7 +1823,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     // Se o usuário pressionar a tecla ESC, fechamos a janela.
     g_keyboardState[key] = {
         /** See also GLFW_PRESS and GLFW_REPEAT */
-        .press = action== GLFW_PRESS,
+        .press =  (action == GLFW_PRESS),
         .hold  = !(action == GLFW_RELEASE)
     };
 
@@ -1428,7 +1851,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         if( g_typingMode == tm_WRITE){
             handleStringCommand(g_stringInput);
         }        
-        if( g_typingMode == EDIT_STRING || g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT){
+        if( g_typingMode == EDIT_STRING || g_typingMode == EDIT_BOOL || g_typingMode == EDIT_FLOAT || g_typingMode == EDIT_INT){
             handleValueInput(g_stringInput, g_globalVariables[g_editVariable]);
         }
         g_shouldLogFrame = true;

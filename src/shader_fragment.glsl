@@ -21,6 +21,12 @@ uniform mat4 projection;
 #define BOMB_OTHER  4
 #define WALL        5 
 #define PAINTING    6
+#define FOOTSLAB    7 
+#define SHREK1      8
+#define SHREK2      9
+#define BLOCK       10
+#define PAINTING2   11
+
 
 uniform int object_id;
 
@@ -30,6 +36,11 @@ uniform sampler2D bomb_other;
 uniform sampler2D floor_tile;
 uniform sampler2D wall_tile;
 uniform sampler2D painting;
+uniform sampler2D footslab;
+uniform sampler2D shrek1;
+uniform sampler2D shrek2;
+uniform sampler2D block;
+uniform sampler2D painting2;
 
 // O valor de saída ("out") de um Fragment Shader é a cor final do fragmento.
 out vec4 color;
@@ -53,7 +64,7 @@ void main()
     vec4 n = normalize(normal);
 
     // Vetor que define o sentido da fonte de luz em relação ao ponto atual.
-    vec4 l = normalize(vec4(1.0,1.0,0.5,0.0));
+    vec4 l = normalize(vec4(0.0,10.0,10,0.0));
 
     // Vetor que define o sentido da câmera em relação ao ponto atual.
     vec4 v = normalize(camera_position - p);
@@ -72,14 +83,12 @@ void main()
     float q; // Expoente especular para o modelo de iluminação de Phong
 
     if ( object_id == SPHERE ) {
-        // PREENCHA AQUI
         // Propriedades espectrais da esfera
         Kd = vec3(0.8,0.4,0.08);
         Ks = vec3(0.0,0.0,0.0);
         Ka = vec3(0.4,0.2,0.04);
         q = 1.0;
     } else if ( object_id == BUNNY ) {
-        // PREENCHA AQUI
         // Propriedades espectrais do coelho
         Kd = vec3(0.08,0.4,0.8);
         Ks = vec3(0.8,0.8,0.8);
@@ -94,7 +103,7 @@ void main()
         
         Ka = Kd0 / 5;
         Kd = Kd0;
-        Ks = Kd0  + vec3(0.1, 0.1, 0.15);
+        Ks = Kd0;
 
         q = 10.0;
 
@@ -144,10 +153,60 @@ void main()
 
         vec3 Kd0 = texture(painting, vec2(U,V)).rgb;
         
-        Ka = Kd0 / 5;
-        Kd = Kd0 / 2;
-        Ks = Kd0  + vec3(0.2, 0.2, 0.2);
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0 ;
         q = 10.0;
+    } else if ( object_id == FOOTSLAB ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(footslab, vec2(U,V)).rgb;
+        
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0;
+        q = 10.0;
+    } else if ( object_id == SHREK1 ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(shrek1, vec2(U,V)).rgb;
+        
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0;
+        q = 10.0;
+    } else if ( object_id == SHREK2 ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(shrek2, vec2(U,V)).rgb;
+        
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0;
+        q = 10.0;
+    } else if ( object_id == BLOCK ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(block, vec2(U,V)).rgb;
+        
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0;
+        q = 1.0;
+    } else if ( object_id == PAINTING2 ) {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        vec3 Kd0 = texture(painting2, vec2(U,V)).rgb;
+        
+        Ka = Kd0;
+        Kd = Kd0;
+        Ks = Kd0;
+        q = 1.0;
     } else { // Objeto desconhecido = preto
         Kd = vec3(0.0,0.0,0.0);
         Ks = vec3(0.0,0.0,0.0);
@@ -159,7 +218,7 @@ void main()
     vec3 I = vec3(1.0,1.0,1.0); // PREENCH AQUI o espectro da fonte de luz
 
     // Espectro da luz ambiente
-    vec3 Ia = vec3(0.2,0.2,0.2); // PREENCHA AQUI o espectro da luz ambiente
+    vec3 Ia = vec3(0.4,0.4,0.4); // PREENCHA AQUI o espectro da luz ambiente
 
     // Termo difuso utilizando a lei dos cossenos de Lambert
     vec3 lambert_diffuse_term = Kd * I * max(0, dot(n,l));//  vec3(0.0,0.0,0.0); // PREENCHA AQUI o termo difuso de Lambert
