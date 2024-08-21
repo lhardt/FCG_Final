@@ -848,11 +848,11 @@ void moveObject(SolidObject & s, float delta_time){
 void handleStringCommand(std::string command){
     if(command == "freeCamera"){
         *(g_globalVariables["cameraType"].ir_value) = 2;
-        break;
+        return;
     }
     if(command == "lookatCamera"){
         *(g_globalVariables["cameraType"].ir_value) = 1;
-        break;
+        return;
     }
     
     if(command == "exit"){

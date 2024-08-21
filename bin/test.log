@@ -1,0 +1,54 @@
+[2024 08 21 19:25:10] INFO 	src/logger.cpp:26 	Initialized logger successfully!
+[2024 08 21 19:25:10] INFO 	src/main.cpp:1039 	Started program.
+[2024 08 21 19:25:10] INFO 	src/main.cpp:946 	Initializing GLFW...
+[2024 08 21 19:25:10] INFO 	src/main.cpp:932 	---- GL Version Info ----
+[2024 08 21 19:25:10] INFO 	src/main.cpp:933 	  GL Version    3.3.0 - Build 31.0.101.5388 
+[2024 08 21 19:25:10] INFO 	src/main.cpp:934 	  GLSL Version: Intel(R) Iris(R) Xe Graphics 
+[2024 08 21 19:25:10] INFO 	src/main.cpp:935 	  GL Vendor:    Intel 
+[2024 08 21 19:25:10] INFO 	src/main.cpp:936 	  GL Renderer:  3.30 - Build 31.0.101.5388 
+[2024 08 21 19:25:10] INFO 	src/main.cpp:937 	-------------------------
+[2024 08 21 19:25:10] INFO 	src/main.cpp:985 	Initialized GLFW successfully!
+[2024 08 21 19:25:10] INFO 	src/main.cpp:548 	OpenGL compilation of shader [../src/shader_vertex.glsl] successful! See logs: 
+
+[2024 08 21 19:25:10] INFO 	src/main.cpp:569 	Registered vertex shader as 1
+[2024 08 21 19:25:10] INFO 	src/main.cpp:548 	OpenGL compilation of shader [../src/shader_fragment.glsl] successful! See logs: 
+
+[2024 08 21 19:25:10] INFO 	src/main.cpp:558 	Registered fragment shader as 2
+[2024 08 21 19:25:10] INFO 	src/main.cpp:580 	Registered GPU program 'main' (1, 2) with id 3. 
+[2024 08 21 19:25:10] INFO 	src/main.cpp:990 	Started reading 9 files and adding to scene.
+[2024 08 21 19:25:10] INFO 	src/model.cpp:17 	Opening Object Model from [../data/sphere.obj]...
+[2024 08 21 19:25:10] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/sphere.obj]!
+[2024 08 21 19:25:10] INFO 	src/main.cpp:1515 	Registered object! [the_sphere]
+[2024 08 21 19:25:10] INFO 	src/model.cpp:17 	Opening Object Model from [../data/bunny.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/bunny.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [the_bunny]
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/floor.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/floor.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [floor]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1546 	Texture coefficients is not empty!
+
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/bobomb.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/bobomb.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [bomb_body]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [bomb_other]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [bomb_foot2]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [bomb_needle]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [bomb_foot1]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1546 	Texture coefficients is not empty!
+
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/painting.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/painting.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [painting]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1546 	Texture coefficients is not empty!
+
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/footslab.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/footslab.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [footslab]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1546 	Texture coefficients is not empty!
+
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/wall.obj]...
+[2024 08 21 19:25:11] INFO 	src/model.cpp:59 	Success on opening Object Model from [../data/wall.obj]!
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1515 	Registered object! [wall]
+[2024 08 21 19:25:11] INFO 	src/main.cpp:1546 	Texture coefficients is not empty!
+
+[2024 08 21 19:25:11] INFO 	src/model.cpp:17 	Opening Object Model from [../data/Shrek.obj]...
